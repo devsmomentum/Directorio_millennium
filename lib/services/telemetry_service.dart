@@ -24,8 +24,9 @@ class TelemetryService {
       final prefs = await SharedPreferences.getInstance();
       final currentKioskId = prefs.getString('kiosk_id');
 
-      if (currentKioskId == null)
+      if (currentKioskId == null) {
         return; // Si no está vinculado, no envía latido
+      }
 
       await _supabase
           .from('kiosks')

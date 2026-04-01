@@ -36,7 +36,7 @@ class ServiceModel {
 }
 
 class ServicesScreen extends StatefulWidget {
-  const ServicesScreen({Key? key}) : super(key: key);
+  const ServicesScreen({super.key});
 
   @override
   State<ServicesScreen> createState() => _ServicesScreenState();

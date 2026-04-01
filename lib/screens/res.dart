@@ -8,7 +8,7 @@ import '../services/supabase_service.dart';
 import '../utils/pathfinder.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({Key? key}) : super(key: key);
+  const MapScreen({super.key});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -448,7 +448,7 @@ class _MapScreenState extends State<MapScreen>
                         );
                       }
                       return const SizedBox.shrink();
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),

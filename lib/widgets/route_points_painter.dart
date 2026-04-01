@@ -1,40 +1,42 @@
 import 'package:flutter/material.dart';
-import '../models/map_node.dart';
+import '../models/map_route.dart';
 
-class RoutePainter extends CustomPainter {
-  final List<MapNode> route;
-  final double animationValue; // 🆕 Valor de progreso (0.0 a 1.0)
+class RoutePointsPainter extends CustomPainter {
+  final List<MapRoutePoint> points;
+  final double animationValue;
+  final Color routeColor;
 
-  RoutePainter({required this.route, this.animationValue = 1.0});
+  RoutePointsPainter({
+    required this.points,
+    this.animationValue = 1.0,
+    this.routeColor = Colors.pinkAccent,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (route.isEmpty || route.length < 2) return;
+    if (points.isEmpty || points.length < 2) return;
 
     final paint = Paint()
-      ..color = Colors.pinkAccent
+      ..color = routeColor
       ..strokeWidth = 6.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    // Efecto de brillo (Neón)
     final glowPaint = Paint()
-      ..color = Colors.pinkAccent.withOpacity(0.3)
+      ..color = routeColor.withOpacity(0.3)
       ..strokeWidth = 16.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
-    // 1. Construir el Path completo
     final path = Path();
-    path.moveTo(route.first.x, route.first.y);
-    for (int i = 1; i < route.length; i++) {
-      path.lineTo(route[i].x, route[i].y);
+    path.moveTo(points.first.x, points.first.y);
+    for (int i = 1; i < points.length; i++) {
+      path.lineTo(points[i].x, points[i].y);
     }
 
-    // 2. Extraer solo el fragmento según la animación
     final pathMetrics = path.computeMetrics();
     final extractPath = Path();
 
@@ -45,14 +47,14 @@ class RoutePainter extends CustomPainter {
       );
     }
 
-    // 3. Dibujar
     canvas.drawPath(extractPath, glowPaint);
     canvas.drawPath(extractPath, paint);
   }
 
   @override
-  bool shouldRepaint(covariant RoutePainter oldDelegate) {
-    return oldDelegate.route != route ||
-        oldDelegate.animationValue != animationValue;
+  bool shouldRepaint(covariant RoutePointsPainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.animationValue != animationValue ||
+        oldDelegate.routeColor != routeColor;
   }
 }

@@ -11,7 +11,7 @@ import 'assistant_screen.dart';
 import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 
 class MainLayout extends StatefulWidget {
-  const MainLayout({Key? key}) : super(key: key);
+  const MainLayout({super.key});
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -53,8 +53,9 @@ class _MainLayoutState extends State<MainLayout> {
 
   // 🚀 LÓGICA DEL TIMEOUT FANTASMA
   void _startInactivityTimer() {
-    if (_isConfiguring)
+    if (_isConfiguring) {
       return; // Si el técnico está configurando, no hacemos nada
+    }
 
     _inactivityTimer?.cancel(); // Matamos el reloj anterior
     _inactivityTimer = Timer(
@@ -288,7 +289,7 @@ class _MainLayoutState extends State<MainLayout> {
 // ============================================================================
 class KioskSetupModal extends StatefulWidget {
   final VoidCallback onClose; // 🚀 Para avisar que ya cerramos
-  const KioskSetupModal({Key? key, required this.onClose}) : super(key: key);
+  const KioskSetupModal({super.key, required this.onClose});
 
   @override
   State<KioskSetupModal> createState() => _KioskSetupModalState();
@@ -419,7 +420,7 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
                         borderSide: BorderSide.none,
                       ),
                     ),
-                    value: _selectedKioskId,
+                    initialValue: _selectedKioskId,
                     items: _availableKiosks.map((kiosk) {
                       return DropdownMenuItem<String>(
                         value: kiosk['id'].toString(),

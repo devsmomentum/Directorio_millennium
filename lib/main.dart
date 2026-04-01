@@ -41,7 +41,7 @@ Future<void> main() async {
 }
 
 class MillenniumKioskApp extends StatelessWidget {
-  const MillenniumKioskApp({Key? key}) : super(key: key);
+  const MillenniumKioskApp({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -39,7 +39,7 @@ class Coupon {
 }
 
 class CouponsScreen extends StatefulWidget {
-  const CouponsScreen({Key? key}) : super(key: key);
+  const CouponsScreen({super.key});
 
   @override
   State<CouponsScreen> createState() => _CouponsScreenState();

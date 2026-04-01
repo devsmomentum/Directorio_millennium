@@ -8,7 +8,7 @@ import '../services/telemetry_service.dart';
 import '../services/ad_cache_manager.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
