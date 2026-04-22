@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:video_player_media_kit/video_player_media_kit.dart';
 
 import 'screens/home_screen.dart';
 import 'theme_manager.dart';
@@ -10,6 +12,8 @@ import 'services/telemetry_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  VideoPlayerMediaKit.ensureInitialized(linux: true);
 
   // Inicializamos Hive y abrimos la caché en RAM
   await Hive.initFlutter();

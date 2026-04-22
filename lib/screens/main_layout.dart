@@ -10,6 +10,7 @@ import 'map_screen.dart';
 import 'assistant_screen.dart';
 import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 import '../widgets/screen_ad_banners.dart';
+import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -118,22 +119,15 @@ class _MainLayoutState extends State<MainLayout> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1A1A),
+              backgroundColor: AppColors.surfaceLight,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
               title: const Row(
                 children: [
-                  Icon(Icons.admin_panel_settings, color: Colors.pinkAccent),
+                  Icon(Icons.admin_panel_settings, color: AppColors.primary),
                   SizedBox(width: 10),
-                  Text(
-                    'MDM SETUP',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
+                  Text('MDM SETUP', style: AppTextStyles.dialogTitle),
                 ],
               ),
               content: Column(
@@ -141,26 +135,30 @@ class _MainLayoutState extends State<MainLayout> {
                 children: [
                   const Text(
                     'Ingrese la contraseña de aprovisionamiento:',
-                    style: TextStyle(color: Colors.white70),
+                    style: AppTextStyles.body,
                   ),
                   const SizedBox(height: 15),
                   TextField(
                     controller: passController,
                     obscureText: true,
-                    style: const TextStyle(color: Colors.white),
+                    style: AppTextStyles.body.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
                     decoration: InputDecoration(
                       hintText: 'Contraseña',
-                      hintStyle: const TextStyle(color: Colors.white30),
+                      hintStyle: AppTextStyles.body.copyWith(
+                        color: AppColors.textHint,
+                      ),
                       errorText: isError ? 'Acceso denegado' : null,
                       filled: true,
-                      fillColor: Colors.black,
+                      fillColor: AppColors.background,
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Colors.pinkAccent),
+                        borderSide: const BorderSide(color: AppColors.primary),
                       ),
                     ),
                   ),
@@ -173,14 +171,16 @@ class _MainLayoutState extends State<MainLayout> {
                     _startInactivityTimer();
                     Navigator.pop(context);
                   },
-                  child: const Text(
+                  child: Text(
                     'CANCELAR',
-                    style: TextStyle(color: Colors.white54),
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.textSecondaryMuted,
+                    ),
                   ),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.pinkAccent,
+                    backgroundColor: AppColors.primary,
                   ),
                   onPressed: () {
                     // 🚀 CLAVE HARDCODEADA
@@ -191,12 +191,9 @@ class _MainLayoutState extends State<MainLayout> {
                       setDialogState(() => isError = true);
                     }
                   },
-                  child: const Text(
+                  child: Text(
                     'ENTRAR',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: AppTextStyles.buttonText.copyWith(letterSpacing: 0),
                   ),
                 ),
               ],
@@ -231,7 +228,7 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerMove: (_) => _startInactivityTimer(), // Dedo arrastra
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
       child: Scaffold(
-        backgroundColor: const Color(0xFF0D0D0D),
+        backgroundColor: AppColors.background,
         body: IndexedStack(index: _currentIndex, children: _screens),
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
@@ -239,8 +236,8 @@ class _MainLayoutState extends State<MainLayout> {
             Container(
               height: 75,
               decoration: const BoxDecoration(
-                color: Color(0xFF111111),
-                border: Border(top: BorderSide(color: Colors.white10)),
+                color: AppColors.surface,
+                border: Border(top: BorderSide(color: AppColors.divider)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -266,22 +263,25 @@ class _MainLayoutState extends State<MainLayout> {
     return GestureDetector(
       onTap: () => _onItemTapped(index),
       child: Container(
-        color: Colors.transparent,
+        color: AppColors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              color: isActive ? Colors.pinkAccent : Colors.white54,
+              color: isActive
+                  ? AppColors.primary
+                  : AppColors.textSecondaryMuted,
               size: 28,
             ),
             const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(
-                color: isActive ? Colors.pinkAccent : Colors.white54,
-                fontSize: 12,
+              style: AppTextStyles.navLabel.copyWith(
+                color: isActive
+                    ? AppColors.primary
+                    : AppColors.textSecondaryMuted,
               ),
             ),
           ],
@@ -363,7 +363,7 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('✅ Equipo vinculado exitosamente'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
       }
@@ -374,25 +374,22 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
   }
 
   void alert(String msg) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: AppColors.error),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: AppColors.surfaceLight,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        'Vincular Hardware',
-        style: TextStyle(color: Colors.white),
-      ),
+      title: const Text('Vincular Hardware', style: AppTextStyles.dialogTitle),
       content: _isLoading
           ? const SizedBox(
               height: 100,
               child: Center(
-                child: CircularProgressIndicator(color: Colors.pinkAccent),
+                child: CircularProgressIndicator(color: AppColors.primary),
               ),
             )
           : Column(
@@ -401,27 +398,33 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
               children: [
                 Text(
                   'ID Físico detectado: $_hardwareId',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondaryMuted,
+                  ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Seleccione el perfil a asignar:',
-                  style: TextStyle(color: Colors.white),
+                  style: AppTextStyles.body.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 10),
 
                 if (_availableKiosks.isEmpty)
-                  const Text(
+                  Text(
                     '❌ No hay perfiles de kioscos disponibles en el panel Admin.',
-                    style: TextStyle(color: Colors.redAccent),
+                    style: AppTextStyles.body.copyWith(color: AppColors.error),
                   )
                 else
                   DropdownButtonFormField<String>(
-                    dropdownColor: Colors.black,
-                    style: const TextStyle(color: Colors.white),
+                    dropdownColor: AppColors.background,
+                    style: AppTextStyles.body.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
                     decoration: InputDecoration(
                       filled: true,
-                      fillColor: Colors.black,
+                      fillColor: AppColors.background,
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
@@ -444,21 +447,23 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
             widget.onClose(); // 🚀 Avisamos que cerramos para reactivar timeout
             Navigator.pop(context);
           },
-          child: const Text(
+          child: Text(
             'CANCELAR',
-            style: TextStyle(color: Colors.white54),
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondaryMuted,
+            ),
           ),
         ),
         if (_availableKiosks.isNotEmpty)
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
             onPressed: _isLoading || _selectedKioskId == null
                 ? null
                 : _linkDevice,
-            child: const Text(
+            child: Text(
               'VINCULAR EQUIPO',
-              style: TextStyle(
-                color: Colors.white,
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.textPrimary,
                 fontWeight: FontWeight.bold,
               ),
             ),

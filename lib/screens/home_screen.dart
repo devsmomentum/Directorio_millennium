@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'main_layout.dart';
 import '../services/ad_cache_manager.dart';
+import '../theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -43,13 +44,17 @@ class _HomeScreenState extends State<HomeScreen> {
             _prepareCurrentMedia();
             _startAdRotation();
           } else {
-            bool currentAdStillExists = _ads.any((ad) => ad['id'] == _currentAd!['id']);
+            bool currentAdStillExists = _ads.any(
+              (ad) => ad['id'] == _currentAd!['id'],
+            );
             if (!currentAdStillExists) {
               _currentAdIndex = 0;
               _currentAd = _ads[0];
               _prepareCurrentMedia();
             } else {
-              _currentAdIndex = _ads.indexWhere((ad) => ad['id'] == _currentAd!['id']);
+              _currentAdIndex = _ads.indexWhere(
+                (ad) => ad['id'] == _currentAd!['id'],
+              );
             }
           }
         });
@@ -84,7 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _videoController?.dispose();
     _videoController = null;
 
-    if (_currentAd != null && _currentAd!['media_type'] == 'video' && _currentAd!['local_path'] != null) {
+    if (_currentAd != null &&
+        _currentAd!['media_type'] == 'video' &&
+        _currentAd!['local_path'] != null) {
       try {
         final file = File(_currentAd!['local_path']);
         if (await file.exists()) {
@@ -115,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.background,
       body: Stack(
         children: [
           // 1. Fondo Publicitario
@@ -133,10 +140,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.0),
-                    Colors.black.withOpacity(0.4),
-                    Colors.black.withOpacity(0.85),
+                  colors: const [
+                    AppColors.transparent,
+                    AppColors.overlaySoft,
+                    AppColors.overlayStrong,
                   ],
                 ),
               ),
@@ -166,38 +173,53 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       // Badge Slot
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.black54,
+                          color: AppColors.badgeBackground,
                           borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: AppColors.divider),
                         ),
                         child: Text(
-                          _currentAd != null ? '📍 SLOT PUBLICITARIO' : '📍 DIRECTORIO DIGITAL',
-                          style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                          _currentAd != null
+                              ? '📍 SLOT PUBLICITARIO'
+                              : '📍 DIRECTORIO DIGITAL',
+                          style: AppTextStyles.badge,
                         ),
                       ),
                       const SizedBox(height: 8),
 
                       // Marca
                       Text(
-                        _currentAd != null ? _currentAd!['brand_name'] : 'Millennium Mall',
-                        style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900),
+                        _currentAd != null
+                            ? _currentAd!['brand_name']
+                            : 'Millennium Mall',
+                        style: AppTextStyles.h1,
                       ),
-                       Text(
-                        (_currentAd != null && _currentAd!['description'] != null && _currentAd!['description'].toString().trim().isNotEmpty)
-                            ? _currentAd!['description'] 
+                      Text(
+                        (_currentAd != null &&
+                                _currentAd!['description'] != null &&
+                                _currentAd!['description']
+                                    .toString()
+                                    .trim()
+                                    .isNotEmpty)
+                            ? _currentAd!['description']
                             : 'Toca para explorar el mall',
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
-                        maxLines: 2, // Evita que una descripción muy larga rompa el diseño
-                        overflow: TextOverflow.ellipsis, // Agrega "..." si el texto es muy largo
+                        style: AppTextStyles.body,
+                        maxLines:
+                            2, // Evita que una descripción muy larga rompa el diseño
+                        overflow: TextOverflow
+                            .ellipsis, // Agrega "..." si el texto es muy largo
                       ),
                       const SizedBox(height: 20),
 
                       // Info de WiFi y QR (Integrado en una sola fila)
                       _buildSmallWifiInfo(),
-                      const SizedBox(height: 15), // Espacio antes del botón COMENZAR
-
+                      const SizedBox(
+                        height: 15,
+                      ), // Espacio antes del botón COMENZAR
                       // Botón Principal
                       _buildSmallStartButton(context),
                       const SizedBox(height: 10),
@@ -216,11 +238,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-Widget _buildSmallWifiInfo() {
+  Widget _buildSmallWifiInfo() {
     const double targetHeight = 50.0; // Altura objetivo para ambos widgets
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center, 
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         // 1. Texto de WiFi Gratis (Ocupando todo el espacio disponible)
         Expanded(
@@ -228,20 +250,21 @@ Widget _buildSmallWifiInfo() {
             height: targetHeight,
             padding: const EdgeInsets.symmetric(horizontal: 15),
             decoration: BoxDecoration(
-              color: Colors.black38,
-              borderRadius: BorderRadius.circular(targetHeight / 2), 
-              border: Border.all(color: Colors.white.withOpacity(0.05)),
+              color: AppColors.chipBackground,
+              borderRadius: BorderRadius.circular(targetHeight / 2),
+              border: Border.all(color: AppColors.subtleBorder),
             ),
             child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center, // Centramos el contenido internamente
+              mainAxisAlignment: MainAxisAlignment
+                  .center, // Centramos el contenido internamente
               children: [
-                Icon(Icons.wifi, color: Colors.pinkAccent, size: 18),
+                Icon(Icons.wifi, color: AppColors.primary, size: 18),
                 SizedBox(width: 10),
                 // Expanded interno opcional por si la pantalla es muy pequeña y el texto choca
                 Flexible(
                   child: Text(
-                    'WiFi Gratis: Millennium_Mall', 
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    'WiFi Gratis: Millennium_Mall',
+                    style: AppTextStyles.caption,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -258,11 +281,9 @@ Widget _buildSmallWifiInfo() {
           height: targetHeight,
           width: targetHeight,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.qrBackground,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10)
-            ],
+            boxShadow: [BoxShadow(color: AppColors.shadow, blurRadius: 10)],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -270,48 +291,63 @@ Widget _buildSmallWifiInfo() {
               data: "WIFI:S:Millennium_Mall;T:WPA;P:mall2026;;",
               version: QrVersions.auto,
               padding: const EdgeInsets.all(2.0),
-              backgroundColor: Colors.white,
+              backgroundColor: AppColors.qrBackground,
             ),
           ),
         ),
       ],
     );
-}
-
-  Widget _buildSmallStartButton(BuildContext context) {
+  }
+Widget _buildSmallStartButton(BuildContext context) {
     return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MainLayout())),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MainLayout()),
+      ),
       child: Container(
         width: double.infinity,
         height: 55,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [Color(0xFFFF007A), Color(0xFFFF5900)]),
+          // Reemplazamos el color sólido por el gradiente usando tu AppTheme
+          gradient: const LinearGradient(
+            begin: Alignment.centerRight,
+            end: Alignment.centerLeft,
+            colors: [
+              Color.fromARGB(255, 56, 129, 231), // El color más suave inicia a la izquierda
+              AppColors.primary,   // El color más fuerte inicia a la derecha
+            ],
+          ),
           borderRadius: BorderRadius.circular(28),
         ),
-        child: const Center(
-          child: Text(
-            ' COMENZAR ',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 1),
-          ),
+        child: Center(
+          child: Text(' COMENZAR ', style: AppTextStyles.buttonText),
         ),
       ),
     );
   }
-
   Widget _buildCollaborativeFooter() {
     return Column(
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text("Desarrollado por ", style: TextStyle(color: Colors.white38, fontSize: 9)),
+            const Text('Desarrollado por ', style: AppTextStyles.footer),
             const SizedBox(width: 4),
-            Image.network('https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png', height: 16),
+            Image.network(
+              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png',
+              height: 16,
+            ),
             const SizedBox(width: 4),
-            const Text(" en colaboración con ", style: TextStyle(color: Colors.white38, fontSize: 9)),
-            Image.network('https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/ANAVI.png', height: 25),
+            const Text(' en colaboración con ', style: AppTextStyles.footer),
+            Image.network(
+              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/ANAVI.png',
+              height: 25,
+            ),
             const SizedBox(width: 6),
-            Image.network('https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_sunmi.png', height: 35),
+            Image.network(
+              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_sunmi.png',
+              height: 35,
+            ),
           ],
         ),
       ],
@@ -332,12 +368,17 @@ Widget _buildSmallWifiInfo() {
           ),
         );
       }
-      return const Center(child: CircularProgressIndicator(color: Color(0xFFFF007A)));
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
     }
     if (_currentAd != null && _currentAd!['local_path'] != null) {
       final file = File(_currentAd!['local_path']);
       if (file.existsSync()) return Image.file(file, fit: BoxFit.cover);
     }
-    return Image.network('https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070', fit: BoxFit.cover);
+    return Image.network(
+      'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070',
+      fit: BoxFit.cover,
+    );
   }
 }
