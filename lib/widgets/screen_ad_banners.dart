@@ -130,6 +130,56 @@ class _BottomNavigationAdBannerState extends State<BottomNavigationAdBanner> {
   }
 }
 
+/// Banner publicitario superior independiente, con altura fija del 10% de pantalla.
+/// Espejo exacto de [BottomNavigationAdBanner] pero cargando los banners de posición 'top'.
+class TopNavigationAdBanner extends StatefulWidget {
+  final String placeholderLabel;
+  final double heightFactor;
+
+  const TopNavigationAdBanner({
+    super.key,
+    this.placeholderLabel = 'Publicidad superior',
+    this.heightFactor = 0.1,
+  });
+
+  @override
+  State<TopNavigationAdBanner> createState() => _TopNavigationAdBannerState();
+}
+
+class _TopNavigationAdBannerState extends State<TopNavigationAdBanner> {
+  List<Map<String, dynamic>> _topBanners = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBanners();
+  }
+
+  Future<void> _loadBanners() async {
+    await _ensureBannerCacheLoaded();
+
+    if (!mounted) return;
+    setState(() {
+      _topBanners = List<Map<String, dynamic>>.from(
+        _BannerCache.topBanners,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bannerHeight =
+        MediaQuery.of(context).size.height * widget.heightFactor;
+    return SizedBox(
+      height: bannerHeight,
+      child: _AdBannerWidget(
+        banners: _topBanners,
+        placeholderLabel: widget.placeholderLabel,
+      ),
+    );
+  }
+}
+
 class _BannerCache {
   static bool loaded = false;
   static Future<void>? pendingLoad;

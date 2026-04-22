@@ -150,16 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 3. LOGO MILLENNIUM (Arriba Derecha)
-          Positioned(
-            top: 20,
-            right: 25,
-            child: Image.network(
-              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_millennium.png',
-              height: 100,
-              fit: BoxFit.contain,
-            ),
-          ),
+          // Logo removido: ahora se muestra en el AppHeader global.
 
           // 4. Contenido Principal
           SafeArea(

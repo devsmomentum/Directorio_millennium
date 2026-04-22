@@ -10,6 +10,7 @@ import 'map_screen.dart';
 import 'assistant_screen.dart';
 import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 import '../widgets/screen_ad_banners.dart';
+import '../widgets/app_header.dart';
 import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
@@ -229,7 +230,18 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
       child: Scaffold(
         backgroundColor: AppColors.background,
-        body: IndexedStack(index: _currentIndex, children: _screens),
+        body: Column(
+          children: [
+            // Banner publicitario superior (10% fijo, igual que el inferior)
+            const TopNavigationAdBanner(),
+            // Header unificado (debajo del banner)
+            const AppHeader(),
+            // Contenido de las pestañas
+            Expanded(
+              child: IndexedStack(index: _currentIndex, children: _screens),
+            ),
+          ],
+        ),
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

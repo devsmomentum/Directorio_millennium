@@ -372,6 +372,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
         ],
       ),
       body: ScreenAdBanners(
+        showTop: false,
         showBottom: false,
         child: Column(
           children: [

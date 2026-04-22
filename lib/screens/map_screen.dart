@@ -677,32 +677,13 @@ class _MapScreenState extends State<MapScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       body: ScreenAdBanners(
+        showTop: false,
         showBottom: false,
         child: Stack(
           children: [
             Column(
               children: [
-                Container(
-                  height: 140,
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFFFF007A), Color(0xFFFF5900)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'MILLENNIUM MALL - DIRECTORIO DIGITAL',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
+
                 Padding(
                   padding: const EdgeInsets.fromLTRB(30, 30, 30, 10),
                   child: TextField(

@@ -483,6 +483,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
         ],
       ),
       body: ScreenAdBanners(
+        showTop: false,
         showBottom: false,
         child: Column(
           children: [
