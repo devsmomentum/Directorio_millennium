@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/currency_service.dart';
+import '../widgets/screen_ad_banners.dart';
 
 // Modelo de datos simple
 class Coupon {
@@ -481,60 +482,65 @@ class _CouponsScreenState extends State<CouponsScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Container(
-            height: 80,
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF00E5FF), Color(0xFF007AFF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+      body: ScreenAdBanners(
+        showBottom: false,
+        child: Column(
+          children: [
+            Container(
+              height: 80,
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF00E5FF), Color(0xFF007AFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-            ),
-            child: const Center(
-              child: Text(
-                'SELECCIONA UNA OFERTA PARA COMPRAR',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1,
+              child: const Center(
+                child: Text(
+                  'SELECCIONA UNA OFERTA PARA COMPRAR',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
-                  )
-                : _allCoupons.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No hay ofertas disponibles.',
-                      style: TextStyle(color: Colors.white54),
+            const SizedBox(height: 20),
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF00E5FF),
+                      ),
+                    )
+                  : _allCoupons.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No hay ofertas disponibles.',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(30),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 30,
+                            mainAxisSpacing: 30,
+                            childAspectRatio: 0.8,
+                          ),
+                      itemCount: _allCoupons.length,
+                      itemBuilder: (context, index) {
+                        final coupon = _allCoupons[index];
+                        return _buildCouponCard(coupon);
+                      },
                     ),
-                  )
-                : GridView.builder(
-                    padding: const EdgeInsets.all(30),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 30,
-                          mainAxisSpacing: 30,
-                          childAspectRatio: 0.8,
-                        ),
-                    itemCount: _allCoupons.length,
-                    itemBuilder: (context, index) {
-                      final coupon = _allCoupons[index];
-                      return _buildCouponCard(coupon);
-                    },
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

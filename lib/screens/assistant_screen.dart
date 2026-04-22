@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/screen_ad_banners.dart';
+
 class AssistantScreen extends StatelessWidget {
   const AssistantScreen({super.key});
 
@@ -7,83 +9,89 @@ class AssistantScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
-      body: Stack(
-        children: [
-          // Botón cerrar
-          Positioned(
-            top: 50,
-            right: 20,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white54, size: 30),
-              onPressed: () => Navigator.pop(context),
+      body: ScreenAdBanners(
+        showBottom: false,
+        child: Stack(
+          children: [
+            // Botón cerrar
+            Positioned(
+              top: 50,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white54, size: 30),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
-          ),
 
-          SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Si el ancho es mayor a 700, asumimos que es modo Kiosko o Tablet
-                bool isWide = constraints.maxWidth > 700;
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Si el ancho es mayor a 700, asumimos que es modo Kiosko o Tablet
+                  bool isWide = constraints.maxWidth > 700;
 
-                return SingleChildScrollView(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isWide ? 60.0 : 25.0,
-                    vertical: 40.0,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // --- HEADER ANIMADO ---
-                      _EntranceAnimation(delay: 0, child: _buildHeader(isWide)),
+                  return SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isWide ? 60.0 : 25.0,
+                      vertical: 40.0,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // --- HEADER ANIMADO ---
+                        _EntranceAnimation(
+                          delay: 0,
+                          child: _buildHeader(isWide),
+                        ),
 
-                      const SizedBox(height: 40),
+                        const SizedBox(height: 40),
 
-                      // --- CUERPO RESPONSIVE ---
-                      if (isWide)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 4,
-                              child: _EntranceAnimation(
+                        // --- CUERPO RESPONSIVE ---
+                        if (isWide)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: _EntranceAnimation(
+                                  delay: 200,
+                                  child: _buildQRSection(isWide),
+                                ),
+                              ),
+                              const SizedBox(width: 60),
+                              Expanded(
+                                flex: 6,
+                                child: _EntranceAnimation(
+                                  delay: 400,
+                                  child: _buildActionsList(isWide),
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          Column(
+                            children: [
+                              _EntranceAnimation(
                                 delay: 200,
                                 child: _buildQRSection(isWide),
                               ),
-                            ),
-                            const SizedBox(width: 60),
-                            Expanded(
-                              flex: 6,
-                              child: _EntranceAnimation(
+                              const SizedBox(height: 40),
+                              _EntranceAnimation(
                                 delay: 400,
                                 child: _buildActionsList(isWide),
                               ),
-                            ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            _EntranceAnimation(
-                              delay: 200,
-                              child: _buildQRSection(isWide),
-                            ),
-                            const SizedBox(height: 40),
-                            _EntranceAnimation(
-                              delay: 400,
-                              child: _buildActionsList(isWide),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
 
-                      const SizedBox(height: 50),
-                      _buildFooter(),
-                    ],
-                  ),
-                );
-              },
+                        const SizedBox(height: 50),
+                        _buildFooter(),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

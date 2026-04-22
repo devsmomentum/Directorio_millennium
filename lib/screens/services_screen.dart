@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/analytics_service.dart'; // 🚀 Importamos el rastreador
 import '../services/currency_service.dart';
+import '../widgets/screen_ad_banners.dart';
 
 class ServiceModel {
   final String id;
@@ -370,112 +371,117 @@ class _ServicesScreenState extends State<ServicesScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Container(
-            height: 80,
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFFF007A), Color(0xFFFF5900)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+      body: ScreenAdBanners(
+        showBottom: false,
+        child: Column(
+          children: [
+            Container(
+              height: 80,
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFFF007A), Color(0xFFFF5900)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-            ),
-            child: const Center(
-              child: Text(
-                'SELECCIONA EL SERVICIO A PAGAR',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1,
+              child: const Center(
+                child: Text(
+                  'SELECCIONA EL SERVICIO A PAGAR',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFFF007A)),
-                  )
-                : _services.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No hay servicios disponibles por ahora.',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                  )
-                : GridView.builder(
-                    padding: const EdgeInsets.all(30),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 30,
-                          mainAxisSpacing: 30,
-                          childAspectRatio: 1.0,
-                        ),
-                    itemCount: _services.length,
-                    itemBuilder: (context, index) {
-                      final srv = _services[index];
-                      return GestureDetector(
-                        onTap: () => _showServiceModal(srv),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A1A1A),
-                            borderRadius: BorderRadius.circular(25),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.05),
+            const SizedBox(height: 20),
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFFF007A),
+                      ),
+                    )
+                  : _services.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No hay servicios disponibles por ahora.',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(30),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 30,
+                            mainAxisSpacing: 30,
+                            childAspectRatio: 1.0,
+                          ),
+                      itemCount: _services.length,
+                      itemBuilder: (context, index) {
+                        final srv = _services[index];
+                        return GestureDetector(
+                          onTap: () => _showServiceModal(srv),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1A1A1A),
+                              borderRadius: BorderRadius.circular(25),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.05),
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 70,
+                                  height: 70,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(15),
+                                    image: DecorationImage(
+                                      image: NetworkImage(srv.imageUrl),
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                Text(
+                                  srv.provider,
+                                  style: const TextStyle(
+                                    color: Color(0xFFFF007A),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  child: Text(
+                                    srv.title,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                width: 70,
-                                height: 70,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(15),
-                                  image: DecorationImage(
-                                    image: NetworkImage(srv.imageUrl),
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 15),
-                              Text(
-                                srv.provider,
-                                style: const TextStyle(
-                                  color: Color(0xFFFF007A),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                                child: Text(
-                                  srv.title,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

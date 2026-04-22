@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:qr_flutter/qr_flutter.dart'; // 🚀 Asegúrate de tener este paquete
 import 'main_layout.dart';
-import '../services/telemetry_service.dart';
 import '../services/ad_cache_manager.dart';
+import '../widgets/screen_ad_banners.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -262,291 +262,323 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: AnimatedSwitcher(
-              duration: const Duration(seconds: 1),
-              child: _buildMediaBackground(),
+      body: ScreenAdBanners(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: const Duration(seconds: 1),
+                child: _buildMediaBackground(),
+              ),
             ),
-          ),
 
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.1),
-                    Colors.black.withOpacity(0.7),
-                    Colors.black.withOpacity(1.0),
-                  ],
-                  stops: const [0.0, 0.4, 1.0],
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.1),
+                      Colors.black.withOpacity(0.7),
+                      Colors.black.withOpacity(1.0),
+                    ],
+                    stops: const [0.0, 0.4, 1.0],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24.0,
-                vertical: 20.0,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  const Spacer(),
-
-                  Container(
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 24.0,
+                      vertical: 20.0,
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Text(
-                      _currentAd != null
-                          ? '📍 SLOT PUBLICITARIO - ${_currentAd!['plan_type']}'
-                          : '📍 DIRECTORIO DIGITAL MORNA',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight > 40
+                            ? constraints.maxHeight - 40
+                            : 0,
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 500),
-                    child: Text(
-                      _currentAd != null
-                          ? _currentAd!['brand_name']
-                          : 'Millennium Mall',
-                      key: ValueKey<String>(
-                        _currentAd?['brand_name'] ?? 'default_title',
-                      ),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 45,
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Toca la pantalla para encontrar tu tienda ideal',
-                    style: TextStyle(color: Colors.white70, fontSize: 18),
-                  ),
-                  const SizedBox(height: 40),
-
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MainLayout(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A1A1A),
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          const Icon(Icons.search, color: Colors.pinkAccent),
-                          const SizedBox(width: 15),
-                          const Expanded(
-                            child: Text(
-                              'Buscar tiendas o servicios...',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                          CircleAvatar(
-                            backgroundColor: Colors.pinkAccent,
-                            radius: 18,
-                            child: const Icon(
-                              Icons.arrow_forward_ios,
-                              size: 15,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 15),
+                          const SizedBox(height: 24),
 
-                  // --- CAJA DE WIFI CON CLICK PARA QR ---
-                  GestureDetector(
-                    onTap: () =>
-                        _showExpandedQR(context), // 🚀 AL TOCAR SE ABRE EL QR
-                    child: Container(
-                      padding: const EdgeInsets.all(15),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A1A1A),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.05),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.wifi,
-                            color: Colors.pinkAccent,
-                            size: 30,
-                          ),
-                          const SizedBox(width: 15),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'WiFi Marketing Gratis',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Text(
-                                  'Toca el código para conectar',
-                                  style: TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                           Container(
-                            width: 50,
-                            height: 50,
-                            color: Colors.white,
-                            child: const Icon(
-                              Icons.qr_code_2,
-                              size: 40,
-                              color: Colors.black,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Text(
+                              _currentAd != null
+                                  ? '📍 SLOT PUBLICITARIO - ${_currentAd!['plan_type']}'
+                                  : '📍 DIRECTORIO DIGITAL MORNA',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 25),
+                          const SizedBox(height: 10),
 
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MainLayout(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFF007A), Color(0xFFFF5900)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(40),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFF007A).withOpacity(0.4),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'TOCA PARA COMENZAR',
-                              style: TextStyle(
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 500),
+                            child: Text(
+                              _currentAd != null
+                                  ? _currentAd!['brand_name']
+                                  : 'Millennium Mall',
+                              key: ValueKey<String>(
+                                _currentAd?['brand_name'] ?? 'default_title',
+                              ),
+                              style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 24,
+                                fontSize: 45,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 1.5,
+                                height: 1.1,
                               ),
                             ),
-                            Text(
-                              'Explorar tiendas y servicios del mall',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // 🚀 NUEVO FOOTER: LOGOS Y CREDITOS
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      // Logo CC Millennium (Izquierda)
-                      Image.network(
-                        'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
-                        height: 45,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const SizedBox(height: 45, width: 45),
-                      ),
-
-                      // Label Morna Tech (Derecha)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                          ),
+                          const SizedBox(height: 10),
                           const Text(
-                            "Desarrollado por ",
+                            'Toca la pantalla para encontrar tu tienda ideal',
                             style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
+                              color: Colors.white70,
+                              fontSize: 18,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Image.network(
-                            'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png',
-                            height: 25,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const SizedBox(height: 25, width: 25),
+                          const SizedBox(height: 40),
+
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const MainLayout(),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A1A1A),
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.search,
+                                    color: Colors.pinkAccent,
+                                  ),
+                                  const SizedBox(width: 15),
+                                  const Expanded(
+                                    child: Text(
+                                      'Buscar tiendas o servicios...',
+                                      style: TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                  CircleAvatar(
+                                    backgroundColor: Colors.pinkAccent,
+                                    radius: 18,
+                                    child: const Icon(
+                                      Icons.arrow_forward_ios,
+                                      size: 15,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
+                          const SizedBox(height: 15),
+
+                          // --- CAJA DE WIFI CON CLICK PARA QR ---
+                          GestureDetector(
+                            onTap: () => _showExpandedQR(
+                              context,
+                            ), // 🚀 AL TOCAR SE ABRE EL QR
+                            child: Container(
+                              padding: const EdgeInsets.all(15),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A1A1A),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.05),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.wifi,
+                                    color: Colors.pinkAccent,
+                                    size: 30,
+                                  ),
+                                  const SizedBox(width: 15),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'WiFi Marketing Gratis',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Toca el código para conectar',
+                                          style: TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 50,
+                                    height: 50,
+                                    color: Colors.white,
+                                    child: const Icon(
+                                      Icons.qr_code_2,
+                                      size: 40,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 25),
+
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const MainLayout(),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFFFF007A),
+                                    Color(0xFFFF5900),
+                                  ],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ),
+                                borderRadius: BorderRadius.circular(40),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFFFF007A,
+                                    ).withOpacity(0.4),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: const Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'TOCA PARA COMENZAR',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.5,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Explorar tiendas y servicios del mall',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 30),
+
+                          // 🚀 NUEVO FOOTER: LOGOS Y CREDITOS
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              // Logo CC Millennium (Izquierda)
+                              Image.network(
+                                'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
+                                height: 45,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    const SizedBox(height: 45, width: 45),
+                              ),
+
+                              // Label Morna Tech (Derecha)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    "Desarrollado por ",
+                                    style: TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Image.network(
+                                    'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png',
+                                    height: 25,
+                                    fit: BoxFit.contain,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const SizedBox(
+                                              height: 25,
+                                              width: 25,
+                                            ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                ],
+                    ),
+                  );
+                },
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

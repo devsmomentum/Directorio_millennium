@@ -9,6 +9,7 @@ import 'services_screen.dart';
 import 'map_screen.dart';
 import 'assistant_screen.dart';
 import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
+import '../widgets/screen_ad_banners.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -231,24 +232,30 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
       child: Scaffold(
         backgroundColor: const Color(0xFF0D0D0D),
-        body: _screens[_currentIndex],
-        bottomNavigationBar: Container(
-          height: 75,
-          decoration: const BoxDecoration(
-            color: Color(0xFF111111),
-            border: Border(top: BorderSide(color: Colors.white10)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildNavItem(Icons.home_outlined, 'Inicio', 0),
-              _buildNavItem(Icons.map_outlined, 'Directorio', 1),
-              // 🚀 NUEVO BOTÓN DE CUPONES
-              _buildNavItem(Icons.local_activity_outlined, 'Cupones', 4),
-              _buildNavItem(Icons.credit_card_outlined, 'Servicios', 2),
-              _buildNavItem(Icons.chat_bubble_outline, 'Asistente', 3),
-            ],
-          ),
+        body: IndexedStack(index: _currentIndex, children: _screens),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 75,
+              decoration: const BoxDecoration(
+                color: Color(0xFF111111),
+                border: Border(top: BorderSide(color: Colors.white10)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(Icons.home_outlined, 'Inicio', 0),
+                  _buildNavItem(Icons.map_outlined, 'Directorio', 1),
+                  // 🚀 NUEVO BOTÓN DE CUPONES
+                  _buildNavItem(Icons.local_activity_outlined, 'Cupones', 4),
+                  _buildNavItem(Icons.credit_card_outlined, 'Servicios', 2),
+                  _buildNavItem(Icons.chat_bubble_outline, 'Asistente', 3),
+                ],
+              ),
+            ),
+            const BottomNavigationAdBanner(),
+          ],
         ),
       ),
     );
