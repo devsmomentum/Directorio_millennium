@@ -246,7 +246,7 @@ class _MainLayoutState extends State<MainLayout> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              height: 75,
+              height: 60,
               decoration: const BoxDecoration(
                 color: AppColors.surface,
                 border: Border(top: BorderSide(color: AppColors.divider)),
@@ -285,7 +285,7 @@ class _MainLayoutState extends State<MainLayout> {
               color: isActive
                   ? AppColors.primary
                   : AppColors.textSecondaryMuted,
-              size: 28,
+              size: 20,
             ),
             const SizedBox(height: 4),
             Text(

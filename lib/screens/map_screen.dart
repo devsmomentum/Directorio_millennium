@@ -9,14 +9,14 @@ import '../services/analytics_service.dart';
 import '../models/store.dart';
 import '../models/map_route.dart';
 import '../models/map_polygon.dart';
-import '../widgets/route_points_painter.dart';
-import '../widgets/polygon_painter.dart';
 import '../widgets/screen_ad_banners.dart';
+import '../theme/app_theme.dart';
 
 // ============================================================================
 // Constantes de pisos
 // ============================================================================
 const Map<String, int> _floorNameToNum = {
+  'PL': 6,
   'C4': 5,
   'C3': 4,
   'C2': 3,
@@ -24,6 +24,7 @@ const Map<String, int> _floorNameToNum = {
   'RG': 1,
 };
 const Map<int, String> _floorNumToName = {
+  6: 'PL',
   5: 'C4',
   4: 'C3',
   3: 'C2',
@@ -45,6 +46,7 @@ class _MapScreenState extends State<MapScreen> {
   List<Store> _allStores = [];
   List<Store> _filteredStores = [];
   String _selectedCategory = 'Todas';
+  String _selectedFloor = 'RG';
   bool _isLoading = true;
 
   RealtimeChannel? _realtimeChannel;
@@ -309,7 +311,6 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Busca la primera ruta asociada a la tienda (como destino o como origen).
   MapRoute? _findFirstRouteForStore(Store store) {
-    // Primero buscar rutas donde la tienda es destino y el kiosco actual es origen
     if (_currentKioskId != null) {
       for (final route in _allRoutes) {
         if (route.destType == 'store' &&
@@ -320,21 +321,16 @@ class _MapScreenState extends State<MapScreen> {
         }
       }
     }
-
-    // Luego buscar cualquier ruta donde la tienda es destino
     for (final route in _allRoutes) {
       if (route.destType == 'store' && route.destId == store.id) {
         return route;
       }
     }
-
-    // Buscar rutas donde la tienda es origen
     for (final route in _allRoutes) {
       if (route.originType == 'store' && route.originId == store.id) {
         return route;
       }
     }
-
     return null;
   }
 
@@ -353,329 +349,26 @@ class _MapScreenState extends State<MapScreen> {
     return _floorNameToNum[store.floorLevel] ?? 1;
   }
 
-  void _showStoreDetail(Store store) {
+  // ══════════════════════════════════════════════════════════════════════════
+  // Al tocar una tienda, preparar selección para la Columna B (futuro)
+  // ══════════════════════════════════════════════════════════════════════════
+  void _onStoreTapped(Store store) {
     AnalyticsService().logEvent(
       eventType: 'click',
       module: 'directory',
       itemName: store.name,
       itemId: store.id,
     );
-
-    final storeFloor = _getStoreFloorNum(store);
-    final isSameFloor =
-        _kioskFloorLevel != null && storeFloor == _kioskFloorLevel;
-    final route = _findFirstRouteForStore(store);
-    final polygon = _findPolygonForStore(store);
-    final hasRoute = route != null;
-    final hasPolygon = polygon != null;
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.7,
-          constraints: const BoxConstraints(maxWidth: 600),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1A1A),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(30),
-                ),
-                child: Image.network(
-                  store.logoUrl,
-                  height: 250,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 250,
-                    color: Colors.white10,
-                    child: const Icon(
-                      Icons.store,
-                      size: 80,
-                      color: Colors.white24,
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(30.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      store.name.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${store.category} • PISO ${store.floorLevel} • LOCAL ${store.localNumber}',
-                      style: const TextStyle(
-                        color: Color(0xFFFF007A),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Indicador de piso diferente (cuando no hay ruta directa)
-                    if (!hasRoute && !isSameFloor && _kioskFloorLevel != null)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFC107).withAlpha(38),
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(
-                            color: const Color(0xFFFFC107).withAlpha(128),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.stairs_rounded,
-                              color: Color(0xFFFFC107),
-                              size: 32,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'ESTA TIENDA ESTA EN OTRO PISO',
-                                    style: TextStyle(
-                                      color: Color(0xFFFFC107),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Te encuentras en el piso ${_floorNumToName[_kioskFloorLevel] ?? '?'}. '
-                                    'Dirigete al piso ${store.floorLevel} para encontrar esta tienda.',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    // Texto descriptivo según el caso
-                    if (hasRoute)
-                      const Text(
-                        "Toca el boton para ver la ruta en el mapa desde tu ubicacion actual.",
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                          height: 1.5,
-                        ),
-                      )
-                    else if (hasPolygon)
-                      Text(
-                        !isSameFloor
-                            ? "Esta tienda esta marcada en el mapa del piso ${store.floorLevel}. Puedes ver su ubicacion exacta."
-                            : "No hay una ruta trazada, pero puedes ver su ubicacion en el mapa.",
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                          height: 1.5,
-                        ),
-                      )
-                    else
-                      const Text(
-                        "Esta tienda aun no tiene una ruta ni ubicacion asignada en el mapa.",
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 16,
-                          height: 1.5,
-                        ),
-                      ),
-
-                    const SizedBox(height: 40),
-                    Row(
-                      children: [
-                        // CASO 1: Hay ruta → mostrar mapa con ruta animada
-                        if (hasRoute)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF007A),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 20,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                _showAnimatedMap(store, route);
-                              },
-                              child: const Text(
-                                'VER RUTA EN EL MAPA',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // CASO 2: No hay ruta pero sí polígono → mostrar mapa con polígono
-                        if (!hasRoute && hasPolygon)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: !isSameFloor
-                                    ? const Color(0xFFFFC107)
-                                    : const Color(0xFFFF007A),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 20,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                _showStoreLocationMap(store, polygon);
-                              },
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    !isSameFloor
-                                        ? Icons.map_rounded
-                                        : Icons.location_on,
-                                    color: !isSameFloor
-                                        ? Colors.black87
-                                        : Colors.white,
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    !isSameFloor
-                                        ? 'VER EN MAPA PISO ${store.floorLevel}'
-                                        : 'VER EN EL MAPA',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: !isSameFloor
-                                          ? Colors.black87
-                                          : Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                        // CASO 3: No hay ruta ni polígono, y está en otro piso
-                        if (!hasRoute &&
-                            !hasPolygon &&
-                            !isSameFloor &&
-                            _kioskFloorLevel != null)
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFC107).withAlpha(51),
-                                borderRadius: BorderRadius.circular(15),
-                                border: Border.all(
-                                  color: const Color(0xFFFFC107),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.elevator_rounded,
-                                    color: Color(0xFFFFC107),
-                                    size: 24,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'PISO ${store.floorLevel}',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFFFC107),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                        const SizedBox(width: 15),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text(
-                            'CERRAR',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    // TODO: Actualizar Columna B con la ubicación de esta tienda
   }
 
-  void _showAnimatedMap(Store targetStore, MapRoute route) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) =>
-          _AnimatedMapModal(targetStore: targetStore, route: route),
-    );
-  }
-
-  void _showStoreLocationMap(Store targetStore, MapPolygon polygon) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => _StoreLocationMapModal(
-        targetStore: targetStore,
-        polygon: polygon,
-        kioskFloorLevel: _kioskFloorLevel,
-      ),
-    );
-  }
-
+  // ══════════════════════════════════════════════════════════════════════════
+  // BUILD — Layout de 3 columnas tipo Kiosco Sunmi K2 Pro
+  // ══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: AppColors.background,
       body: ScreenAdBanners(
         showTop: false,
         showBottom: false,
@@ -683,40 +376,48 @@ class _MapScreenState extends State<MapScreen> {
           children: [
             Column(
               children: [
-
+                // ── Fila 1: Barra de búsqueda (Optimizada en tamaño) ──
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(30, 30, 30, 10),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (_) => _filterStores(),
-                    style: const TextStyle(color: Colors.white, fontSize: 20),
-                    decoration: InputDecoration(
-                      hintText: 'Busca tu tienda favorita...',
-                      hintStyle: const TextStyle(color: Colors.white30),
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        color: Color(0xFFFF007A),
-                        size: 30,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: SizedBox(
+                    height: 48,
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (_) => _filterStores(),
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
                       ),
-                      filled: true,
-                      fillColor: const Color(0xFF1A1A1A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide.none,
+                      decoration: InputDecoration(
+                        hintText: 'Busca tu tienda favorita...',
+                        hintStyle: const TextStyle(color: AppColors.textHint),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: AppColors.primary,
+                          size: 24,
+                        ),
+                        filled: true,
+                        fillColor: AppColors.surfaceLight,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 25),
                     ),
                   ),
                 ),
+
+                // ── Fila 2: Categorías (chips horizontales compactos) ──
                 SizedBox(
-                  height: 120,
+                  height: 48,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: _categories.length,
                     itemBuilder: (context, index) {
                       final cat = _categories[index];
-                      bool isSelected = _selectedCategory == cat['name'];
+                      final isSelected = _selectedCategory == cat['name'];
                       return GestureDetector(
                         onTap: () {
                           AnalyticsService().logEvent(
@@ -728,36 +429,38 @@ class _MapScreenState extends State<MapScreen> {
                           _filterStores();
                         },
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: 140,
-                          margin: const EdgeInsets.all(10),
+                          duration: const Duration(milliseconds: 250),
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFFFF007A)
-                                : const Color(0xFF1A1A1A),
-                            borderRadius: BorderRadius.circular(20),
+                                ? AppColors.primary
+                                : AppColors.surfaceLight,
+                            borderRadius: BorderRadius.circular(30),
                           ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                cat['icon'],
+                                cat['icon'] as IconData,
                                 color: isSelected
-                                    ? Colors.white
-                                    : Colors.white54,
-                                size: 30,
+                                    ? AppColors.textPrimary
+                                    : AppColors.textSecondaryMuted,
+                                size: 18,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(width: 6),
                               Text(
-                                cat['name'],
+                                cat['name'] as String,
                                 style: TextStyle(
                                   color: isSelected
-                                      ? Colors.white
-                                      : Colors.white54,
+                                      ? AppColors.textPrimary
+                                      : AppColors.textSecondaryMuted,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
-                                textAlign: TextAlign.center,
                               ),
                             ],
                           ),
@@ -766,52 +469,72 @@ class _MapScreenState extends State<MapScreen> {
                     },
                   ),
                 ),
+
+                // ── Fila 3: Tres columnas principales ──
                 Expanded(
-                  child: _isLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFFFF007A),
-                          ),
-                        )
-                      : _filteredStores.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No se encontraron tiendas',
-                            style: TextStyle(color: Colors.white54),
-                          ),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(30),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 25,
-                                mainAxisSpacing: 25,
-                                childAspectRatio: 0.85,
-                              ),
-                          itemCount: _filteredStores.length,
-                          itemBuilder: (context, index) {
-                            return GestureDetector(
-                              onTap: () =>
-                                  _showStoreDetail(_filteredStores[index]),
-                              child: _buildStoreCard(_filteredStores[index]),
-                            );
-                          },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ═══ COLUMNA A: Lista de tiendas ═══
+                        Expanded(
+                          flex: 2,
+                          child: _isLoading
+                              ? const Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.primary,
+                                  ),
+                                )
+                              : _filteredStores.isEmpty
+                                  ? const Center(
+                                      child: Text(
+                                        'No se encontraron tiendas',
+                                        style: TextStyle(
+                                          color: AppColors.textSecondaryMuted,
+                                        ),
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      padding: const EdgeInsets.only(right: 8, top: 4),
+                                      itemCount: _filteredStores.length,
+                                      itemBuilder: (context, index) {
+                                        return GestureDetector(
+                                          onTap: () => _onStoreTapped(
+                                            _filteredStores[index],
+                                          ),
+                                          child: _buildStoreCard(
+                                            _filteredStores[index],
+                                          ),
+                                        );
+                                      },
+                                    ),
                         ),
+
+                        // ═══ COLUMNA B: Mapa placeholder ═══
+                        Expanded(
+                          flex: 5,
+                          child: _buildMapPlaceholder(),
+                        ),
+
+                        // ═══ COLUMNA C: Selector de pisos ═══
+                        SizedBox(
+                          width: 60,
+                          child: _buildFloorSelector(),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
 
-            // ================================================================
-            // ZONA SECRETA: Long-press 5 segundos en esquina superior derecha
-            // para seleccionar kiosco
-            // ================================================================
+            // Zona secreta: long-press esquina superior derecha
             Positioned(
               top: 0,
               right: 0,
               child: _KioskLongPressZone(
                 onKioskSelected: () {
-                  // Recargar datos con el nuevo kiosco
                   _loadData(isSilent: true);
                 },
               ),
@@ -822,123 +545,195 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Tarjeta de tienda — Diseño horizontal compacto (Solo Logo, Nombre, Nivel)
+  // ══════════════════════════════════════════════════════════════════════════
   Widget _buildStoreCard(Store store) {
-    final storeFloor = _getStoreFloorNum(store);
-    final isSameFloor =
-        _kioskFloorLevel != null && storeFloor == _kioskFloorLevel;
-    final hasRoute = _findFirstRouteForStore(store) != null;
-    final hasPolygon = _findPolygonForStore(store) != null;
-
     return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(25),
+        color: AppColors.surfaceLight, 
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10), // Borde sutil
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(25),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Container(
-                width: double.infinity,
-                color: Colors.black26,
-                child: Image.network(
-                  store.logoUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.store, size: 50, color: Colors.white24),
+      child: Row(
+        children: [
+          // Logo compacto con fondo blanco para preservar la legibilidad
+          Container(
+            width: 45,
+            height: 45,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                store.logoUrl,
+                fit: BoxFit.contain, // Contain evita que el logo se corte
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.store,
+                  size: 24,
+                  color: AppColors.textHint,
                 ),
               ),
             ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(15.0),
+          ),
+          const SizedBox(width: 10),
+          // Información de la tienda (Reducida a lo esencial)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  store.name.toUpperCase(),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Nivel ${store.floorLevel}',
+                  style: const TextStyle(
+                    color: AppColors.textSecondaryMuted,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Columna B — Placeholder del mapa
+  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildMapPlaceholder() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(bottom: 8),
+            child: const Text(
+              '🗺 PLANTA BAJA',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceLight,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Center(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      store.name.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Icon(
+                      Icons.map,
+                      size: 60,
+                      color: AppColors.textHint,
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'PISO ${store.floorLevel} • LOCAL ${store.localNumber}',
-                            style: const TextStyle(
-                              color: Color(0xFFFF007A),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        // Badge: otro piso sin ruta
-                        if (_kioskFloorLevel != null &&
-                            !isSameFloor &&
-                            !hasRoute)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFC107).withAlpha(51),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.stairs_rounded,
-                                  color: Color(0xFFFFC107),
-                                  size: 12,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  store.floorLevel,
-                                  style: const TextStyle(
-                                    color: Color(0xFFFFC107),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        // Icono: tiene ruta
-                        if (hasRoute)
-                          const Icon(
-                            Icons.route_rounded,
-                            color: Color(0xFFFF007A),
-                            size: 16,
-                          ),
-                        // Icono: tiene polígono pero no ruta
-                        if (!hasRoute && hasPolygon)
-                          const Icon(
-                            Icons.map_rounded,
-                            color: Colors.white38,
-                            size: 16,
-                          ),
-                      ],
+                    SizedBox(height: 12),
+                    Text(
+                      'Renderizado de Mapa Aquí',
+                      style: TextStyle(
+                        color: AppColors.textSecondaryMuted,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Columna C — Selector de pisos (Optimizado contra Overflow)
+  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildFloorSelector() {
+    final floors = ['RG', 'PL', 'C1', 'C2', 'C3', 'C4'];
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8, top: 0),
+          child: Text(
+            'PISO',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+        // 🛠️ SOLUCIÓN OVERFLOW: Envolver los botones en un ListView expandido
+        Expanded(
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: floors.length,
+            itemBuilder: (context, index) {
+              final floor = floors[index];
+              final isSelected = _selectedFloor == floor;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedFloor = floor),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 46,
+                  height: 46,
+                  margin: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primary.withAlpha(38)
+                        : AppColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      floor,
+                      style: TextStyle(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.textSecondaryMuted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1191,7 +986,7 @@ class _KioskSelectorModalState extends State<_KioskSelectorModal> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFFFF007A).withOpacity(0.15)
+                          ? const Color(0xFFFF007A).withAlpha(38)
                           : const Color(0xFF111111),
                       borderRadius: BorderRadius.circular(15),
                       border: Border.all(
@@ -1245,7 +1040,7 @@ class _KioskSelectorModalState extends State<_KioskSelectorModal> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
+                              color: Colors.green.withAlpha(51),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Text(
@@ -1291,684 +1086,5 @@ class _KioskSelectorModalState extends State<_KioskSelectorModal> {
         ),
       ),
     );
-  }
-}
-
-// ============================================================================
-// WIDGET DEL MAPA ANIMADO CON RUTA PRE-DIBUJADA DEL ADMIN
-// ============================================================================
-class _AnimatedMapModal extends StatefulWidget {
-  final Store targetStore;
-  final MapRoute route;
-  const _AnimatedMapModal({
-    Key? key,
-    required this.targetStore,
-    required this.route,
-  }) : super(key: key);
-
-  @override
-  State<_AnimatedMapModal> createState() => _AnimatedMapModalState();
-}
-
-class _AnimatedMapModalState extends State<_AnimatedMapModal>
-    with TickerProviderStateMixin {
-  late AnimationController _animationController;
-  late TransformationController _transformationController;
-  late AnimationController _cameraAnimationController;
-  Size _currentViewSize = Size.zero;
-  bool _isInitialCameraSet = false;
-  String? _floorImageUrl;
-  bool _isLoadingImage = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-    );
-    _transformationController = TransformationController();
-    _cameraAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
-    _loadFloorImage();
-  }
-
-  Future<void> _loadFloorImage() async {
-    try {
-      final client = Supabase.instance.client;
-      final floorLabel =
-          _floorNumToName[widget.route.floorLevel]?.toLowerCase() ?? 'rg';
-      final url = client.storage
-          .from('mapas')
-          .getPublicUrl('plano_$floorLabel.png');
-      setState(() {
-        _floorImageUrl = url;
-        _isLoadingImage = false;
-      });
-    } catch (e) {
-      debugPrint('Error cargando imagen del piso: $e');
-      setState(() => _isLoadingImage = false);
-    }
-  }
-
-  void _animateCameraToFocusRoute() {
-    final points = widget.route.points;
-    if (points.isEmpty || _currentViewSize == Size.zero) return;
-
-    double minX = points.first.x;
-    double maxX = points.first.x;
-    double minY = points.first.y;
-    double maxY = points.first.y;
-
-    for (var pt in points) {
-      if (pt.x < minX) minX = pt.x;
-      if (pt.x > maxX) maxX = pt.x;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.y > maxY) maxY = pt.y;
-    }
-
-    double routeCenterX = (minX + maxX) / 2.0;
-    double routeCenterY = (minY + maxY) / 2.0;
-    double routeWidth = maxX - minX;
-    double routeHeight = maxY - minY;
-
-    double paddingFactor = 1.5;
-    double viewWidth = _currentViewSize.width;
-    double viewHeight = _currentViewSize.height;
-
-    double scaleX = viewWidth / (routeWidth * paddingFactor);
-    double scaleY = viewHeight / (routeHeight * paddingFactor);
-    double targetScale = (scaleX < scaleY ? scaleX : scaleY).clamp(0.8, 5.0);
-
-    double targetDx = (viewWidth / 2.0) - (routeCenterX * targetScale);
-    double targetDy = (viewHeight / 2.0) - (routeCenterY * targetScale);
-
-    final targetMatrix = Matrix4.identity()
-      ..translate(targetDx, targetDy)
-      ..scale(targetScale);
-
-    final Matrix4Tween matrixTween = Matrix4Tween(
-      begin: _transformationController.value,
-      end: targetMatrix,
-    );
-
-    _cameraAnimationController.addListener(() {
-      _transformationController.value = matrixTween.evaluate(
-        _cameraAnimationController,
-      );
-    });
-
-    _cameraAnimationController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _animationController.forward();
-      }
-    });
-
-    _cameraAnimationController.forward(from: 0.0);
-  }
-
-  void _setInitialMacroFit(BoxConstraints constraints) {
-    if (_isInitialCameraSet) return;
-
-    double mapOriginalSize = 2000.0;
-    double viewWidth = constraints.maxWidth;
-    double viewHeight = constraints.maxHeight;
-
-    double scaleFit =
-        (viewWidth / mapOriginalSize < viewHeight / mapOriginalSize)
-        ? viewWidth / mapOriginalSize
-        : viewHeight / mapOriginalSize;
-
-    double dx = (viewWidth - (mapOriginalSize * scaleFit)) / 2.0;
-    double dy = (viewHeight - (mapOriginalSize * scaleFit)) / 2.0;
-
-    _transformationController.value = Matrix4.identity()
-      ..translate(dx, dy)
-      ..scale(scaleFit);
-
-    _isInitialCameraSet = true;
-  }
-
-  Color _parseRouteColor(String hexColor) {
-    try {
-      final hex = hexColor.replaceFirst('#', '');
-      return Color(int.parse('FF$hex', radix: 16));
-    } catch (_) {
-      return Colors.pinkAccent;
-    }
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    _transformationController.dispose();
-    _cameraAnimationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final routeColor = _parseRouteColor(widget.route.color);
-    final points = widget.route.points;
-
-    return Dialog(
-      backgroundColor: const Color(0xFF111111),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.85,
-        height: MediaQuery.of(context).size.height * 0.85,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(30)),
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-              color: const Color(0xFF1A1A1A),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "RUTA: ${widget.route.name}",
-                          style: const TextStyle(
-                            color: Color(0xFFFF007A),
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                            fontSize: 12,
-                          ),
-                        ),
-                        Text(
-                          "Hacia: ${widget.targetStore.name}",
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        Text(
-                          'PISO ${_floorNumToName[widget.route.floorLevel] ?? '?'} • LOCAL ${widget.targetStore.localNumber}',
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            // Mapa
-            Expanded(
-              child: _isLoadingImage
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFFF007A),
-                      ),
-                    )
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        _currentViewSize = Size(
-                          constraints.maxWidth,
-                          constraints.maxHeight,
-                        );
-
-                        if (!_isInitialCameraSet) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            _setInitialMacroFit(constraints);
-                            // Iniciar animación de cámara después del macro fit
-                            Future.delayed(
-                              const Duration(milliseconds: 300),
-                              () {
-                                if (mounted) _animateCameraToFocusRoute();
-                              },
-                            );
-                          });
-                        }
-
-                        return InteractiveViewer(
-                          transformationController: _transformationController,
-                          maxScale: 5.0,
-                          minScale: 0.1,
-                          constrained: false,
-                          boundaryMargin: const EdgeInsets.all(100),
-                          child: SizedBox(
-                            width: 2000,
-                            height: 2000,
-                            child: Stack(
-                              children: [
-                                // Imagen del plano
-                                if (_floorImageUrl != null)
-                                  Image.network(
-                                    _floorImageUrl!,
-                                    width: 2000,
-                                    height: 2000,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      width: 2000,
-                                      height: 2000,
-                                      color: const Color(0xFF111111),
-                                      child: const Center(
-                                        child: Text(
-                                          'No se pudo cargar el plano',
-                                          style: TextStyle(
-                                            color: Colors.white24,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                // Ruta animada
-                                AnimatedBuilder(
-                                  animation: _animationController,
-                                  builder: (context, child) {
-                                    return CustomPaint(
-                                      size: const Size(2000, 2000),
-                                      painter: RoutePointsPainter(
-                                        points: points,
-                                        animationValue:
-                                            _animationController.value,
-                                        routeColor: routeColor,
-                                      ),
-                                    );
-                                  },
-                                ),
-
-                                // Marcador de destino (tienda)
-                                if (points.isNotEmpty)
-                                  Positioned(
-                                    left: points.last.x - 25,
-                                    top: points.last.y - 50,
-                                    child: const Icon(
-                                      Icons.location_on,
-                                      color: Colors.pinkAccent,
-                                      size: 50,
-                                    ),
-                                  ),
-
-                                // Marcador de origen (kiosco / tu ubicación)
-                                if (points.isNotEmpty)
-                                  Positioned(
-                                    left: points.first.x - 20,
-                                    top: points.first.y - 20,
-                                    child: Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: Colors.blueAccent,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.white,
-                                          width: 3,
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        Icons.accessibility_new,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// MODAL: MUESTRA PLANO CON POLIGONO RESALTADO (sin ruta)
-// ============================================================================
-class _StoreLocationMapModal extends StatefulWidget {
-  final Store targetStore;
-  final MapPolygon polygon;
-  final int? kioskFloorLevel;
-
-  const _StoreLocationMapModal({
-    Key? key,
-    required this.targetStore,
-    required this.polygon,
-    this.kioskFloorLevel,
-  }) : super(key: key);
-
-  @override
-  State<_StoreLocationMapModal> createState() => _StoreLocationMapModalState();
-}
-
-class _StoreLocationMapModalState extends State<_StoreLocationMapModal>
-    with SingleTickerProviderStateMixin {
-  late TransformationController _transformationController;
-  late AnimationController _pulseController;
-  String? _floorImageUrl;
-  bool _isLoadingImage = true;
-  bool _isInitialCameraSet = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _transformationController = TransformationController();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _loadFloorImage();
-  }
-
-  Future<void> _loadFloorImage() async {
-    try {
-      final client = Supabase.instance.client;
-      final floorLabel =
-          _floorNumToName[widget.polygon.floorLevel]?.toLowerCase() ?? 'rg';
-      final url = client.storage
-          .from('mapas')
-          .getPublicUrl('plano_$floorLabel.png');
-      setState(() {
-        _floorImageUrl = url;
-        _isLoadingImage = false;
-      });
-    } catch (e) {
-      debugPrint('Error cargando imagen del piso: $e');
-      setState(() => _isLoadingImage = false);
-    }
-  }
-
-  Color _parseColor(String hexColor) {
-    try {
-      final hex = hexColor.replaceFirst('#', '');
-      return Color(int.parse('FF$hex', radix: 16));
-    } catch (_) {
-      return Colors.pinkAccent;
-    }
-  }
-
-  void _focusOnPolygon(BoxConstraints constraints) {
-    if (_isInitialCameraSet) return;
-    final points = widget.polygon.points;
-    if (points.length < 3) return;
-
-    double minX = points.first.x;
-    double maxX = points.first.x;
-    double minY = points.first.y;
-    double maxY = points.first.y;
-
-    for (var pt in points) {
-      if (pt.x < minX) minX = pt.x;
-      if (pt.x > maxX) maxX = pt.x;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.y > maxY) maxY = pt.y;
-    }
-
-    double centerX = (minX + maxX) / 2.0;
-    double centerY = (minY + maxY) / 2.0;
-    double polyWidth = maxX - minX;
-    double polyHeight = maxY - minY;
-
-    double paddingFactor = 2.0;
-    double viewWidth = constraints.maxWidth;
-    double viewHeight = constraints.maxHeight;
-
-    double scaleX = viewWidth / (polyWidth * paddingFactor);
-    double scaleY = viewHeight / (polyHeight * paddingFactor);
-    double targetScale = (scaleX < scaleY ? scaleX : scaleY).clamp(0.5, 4.0);
-
-    double dx = (viewWidth / 2.0) - (centerX * targetScale);
-    double dy = (viewHeight / 2.0) - (centerY * targetScale);
-
-    _transformationController.value = Matrix4.identity()
-      ..translate(dx, dy)
-      ..scale(targetScale);
-
-    _isInitialCameraSet = true;
-  }
-
-  @override
-  void dispose() {
-    _transformationController.dispose();
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final polyColor = _parseColor(widget.polygon.color);
-    final isSameFloor =
-        widget.kioskFloorLevel != null &&
-        widget.polygon.floorLevel == widget.kioskFloorLevel;
-    final floorName = _floorNumToName[widget.polygon.floorLevel] ?? '?';
-
-    return Dialog(
-      backgroundColor: const Color(0xFF111111),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.85,
-        height: MediaQuery.of(context).size.height * 0.85,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(30)),
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-              color: const Color(0xFF1A1A1A),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              "UBICACION EN PISO $floorName",
-                              style: TextStyle(
-                                color: isSameFloor
-                                    ? const Color(0xFFFF007A)
-                                    : const Color(0xFFFFC107),
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 2,
-                                fontSize: 12,
-                              ),
-                            ),
-                            if (!isSameFloor) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFC107).withAlpha(38),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'OTRO PISO',
-                                  style: TextStyle(
-                                    color: Color(0xFFFFC107),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        Text(
-                          widget.targetStore.name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        Text(
-                          'LOCAL ${widget.targetStore.localNumber} • ${widget.targetStore.category}',
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            // Mapa con polígono
-            Expanded(
-              child: _isLoadingImage
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFFF007A),
-                      ),
-                    )
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        if (!_isInitialCameraSet) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) _focusOnPolygon(constraints);
-                          });
-                        }
-
-                        return InteractiveViewer(
-                          transformationController: _transformationController,
-                          maxScale: 5.0,
-                          minScale: 0.1,
-                          constrained: false,
-                          boundaryMargin: const EdgeInsets.all(100),
-                          child: SizedBox(
-                            width: 2000,
-                            height: 2000,
-                            child: Stack(
-                              children: [
-                                // Plano del piso
-                                if (_floorImageUrl != null)
-                                  Image.network(
-                                    _floorImageUrl!,
-                                    width: 2000,
-                                    height: 2000,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      width: 2000,
-                                      height: 2000,
-                                      color: const Color(0xFF111111),
-                                      child: const Center(
-                                        child: Text(
-                                          'No se pudo cargar el plano',
-                                          style: TextStyle(
-                                            color: Colors.white24,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                // Polígono resaltado con pulso
-                                AnimatedBuilder(
-                                  animation: _pulseController,
-                                  builder: (context, child) {
-                                    return CustomPaint(
-                                      size: const Size(2000, 2000),
-                                      painter: PolygonHighlightPainter(
-                                        polygon: widget.polygon,
-                                        fillColor: polyColor,
-                                        borderColor: polyColor,
-                                        pulseValue: _pulseController.value,
-                                      ),
-                                    );
-                                  },
-                                ),
-
-                                // Label de la tienda en el centro del polígono
-                                if (widget.polygon.points.length >= 3)
-                                  Positioned(
-                                    left: _polygonCenterX(widget.polygon) - 60,
-                                    top: _polygonCenterY(widget.polygon) - 20,
-                                    child: Container(
-                                      width: 120,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black87,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: polyColor,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        widget.targetStore.name.toUpperCase(),
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  double _polygonCenterX(MapPolygon polygon) {
-    double sum = 0;
-    for (var pt in polygon.points) {
-      sum += pt.x;
-    }
-    return sum / polygon.points.length;
-  }
-
-  double _polygonCenterY(MapPolygon polygon) {
-    double sum = 0;
-    for (var pt in polygon.points) {
-      sum += pt.y;
-    }
-    return sum / polygon.points.length;
   }
 }
