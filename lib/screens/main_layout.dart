@@ -31,7 +31,7 @@ class _MainLayoutState extends State<MainLayout> {
   // 🚀 VARIABLES PARA EL TIMEOUT DE INACTIVIDAD
   Timer? _inactivityTimer;
   Timer? _warningTimer;
-  final int _timeoutSeconds = 45; // Tiempo máximo sin tocar la pantalla
+  final int _timeoutSeconds = 60; // Tiempo máximo sin tocar la pantalla
   final int _warningBeforeSeconds = 10; // Aviso 10 segundos antes
   bool _isConfiguring = false; // Evita que el técnico sea expulsado
   bool _showWarning = false; // Controla la visibilidad del overlay de aviso
@@ -262,12 +262,12 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerDown: (_) => _startInactivityTimer(), // Dedo toca
       onPointerMove: (_) => _startInactivityTimer(), // Dedo arrastra
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        body: Stack(
-          children: [
-            // ── Contenido principal ──
-            Column(
+      child: Stack(
+        children: [
+          // ── Scaffold completo (body + bottomNav) ──
+          Scaffold(
+            backgroundColor: AppColors.background,
+            body: Column(
               children: [
                 // Banner publicitario superior (10% fijo, igual que el inferior)
                 const TopNavigationAdBanner(),
@@ -279,42 +279,42 @@ class _MainLayoutState extends State<MainLayout> {
                 ),
               ],
             ),
-
-            // ── Overlay de aviso de inactividad ──
-            if (_showWarning)
-              Positioned.fill(
-                child: InactivityWarning(
-                  countdownSeconds: _warningBeforeSeconds,
-                  onDismiss: _dismissWarning,
-                  onTimeout: _handleInactivity,
+            bottomNavigationBar: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: 60,
+                  decoration: const BoxDecoration(
+                    color: AppColors.surface,
+                    border: Border(top: BorderSide(color: AppColors.divider)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildNavItem(Icons.home_outlined, 'Inicio', 0),
+                      _buildNavItem(Icons.map_outlined, 'Directorio', 1),
+                      // 🚀 NUEVO BOTÓN DE CUPONES
+                      _buildNavItem(Icons.local_activity_outlined, 'Cupones', 4),
+                      _buildNavItem(Icons.credit_card_outlined, 'Servicios', 2),
+                      _buildNavItem(Icons.chat_bubble_outline, 'Asistente', 3),
+                    ],
+                  ),
                 ),
-              ),
-          ],
-        ),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              height: 60,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                border: Border(top: BorderSide(color: AppColors.divider)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildNavItem(Icons.home_outlined, 'Inicio', 0),
-                  _buildNavItem(Icons.map_outlined, 'Directorio', 1),
-                  // 🚀 NUEVO BOTÓN DE CUPONES
-                  _buildNavItem(Icons.local_activity_outlined, 'Cupones', 4),
-                  _buildNavItem(Icons.credit_card_outlined, 'Servicios', 2),
-                  _buildNavItem(Icons.chat_bubble_outline, 'Asistente', 3),
-                ],
+                const BottomNavigationAdBanner(),
+              ],
+            ),
+          ),
+
+          // ── Overlay de inactividad — ENCIMA de todo el Scaffold ──
+          if (_showWarning)
+            Positioned.fill(
+              child: InactivityWarning(
+                countdownSeconds: _warningBeforeSeconds,
+                onDismiss: _dismissWarning,
+                onTimeout: _handleInactivity,
               ),
             ),
-            const BottomNavigationAdBanner(),
-          ],
-        ),
+        ],
       ),
     );
   }
