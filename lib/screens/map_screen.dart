@@ -41,7 +41,7 @@ class _MapScreenState extends State<MapScreen> {
   final SupabaseService _supabaseService = SupabaseService();
   final TextEditingController _searchController = TextEditingController();
   
-  // 🚀 Controladores para las flechas dinámicas de categorías
+  // Controladores para las flechas dinámicas de categorías
   final ScrollController _categoryScrollController = ScrollController();
   bool _canScrollLeft = false;
   bool _canScrollRight = true;
@@ -69,8 +69,6 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _loadData();
     _setupRealtime();
-    
-    // Escuchar el scroll para actualizar las flechas
     _categoryScrollController.addListener(_updateCategoryScrollState);
   }
 
@@ -78,11 +76,10 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _realtimeChannel?.unsubscribe();
     _searchController.dispose();
-    _categoryScrollController.dispose(); // Limpiamos el controlador
+    _categoryScrollController.dispose();
     super.dispose();
   }
 
-  // 🚀 Lógica para ocultar/mostrar flechas de categorías
   void _updateCategoryScrollState() {
     if (!_categoryScrollController.hasClients) return;
     
@@ -218,7 +215,6 @@ class _MapScreenState extends State<MapScreen> {
         _filterStores();
         _isLoading = false;
       });
-      // Verificamos si las nuevas categorías caben en pantalla o necesitan flechas
       WidgetsBinding.instance.addPostFrameCallback((_) => _updateCategoryScrollState());
     }
   }
@@ -318,20 +314,66 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // LÓGICA DE ORDENAMIENTO Y BÚSQUEDA AVANZADA (NUEVO)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Define el nivel de prioridad de cada plan. Número menor = mayor prioridad.
+  int _getPlanPriority(String? plan) {
+    if (plan == null) return 4;
+    switch (plan.toUpperCase()) {
+      case 'DIAMANTE':
+        return 1;
+      case 'ORO':
+        return 2;
+      case 'IA_PERFORMANCE':
+        return 3;
+      default:
+        return 4; // Otros casos o nulos
+    }
+  }
+
   void _filterStores() {
-    String query = _searchController.text.toLowerCase();
+    String query = _searchController.text.toLowerCase().trim();
+    
     setState(() {
+      // 1. Filtrado de datos (Por Nombre, Categoría o Descripción/Nicho)
       _filteredStores = _allStores.where((store) {
-        final matchesQuery = store.name.toLowerCase().contains(query);
-        final matchesCategory =
-            _selectedCategory == 'Todas' ||
-            store.category.toLowerCase().contains(
-              _selectedCategory.toLowerCase(),
-            );
+        // Obtenemos los campos de forma segura
+        final name = store.name.toLowerCase();
+        final category = store.category.toLowerCase();
+        // Asume que tienes `description` en tu modelo Store. Si no, quita esta línea.
+        final description = store.description?.toLowerCase() ?? ''; 
+
+        final matchesQuery = query.isEmpty ||
+            name.contains(query) ||
+            category.contains(query) ||
+            description.contains(query);
+
+        final matchesCategory = _selectedCategory == 'Todas' ||
+            category.contains(_selectedCategory.toLowerCase());
+
         return matchesQuery && matchesCategory;
       }).toList();
+
+      // 2. Ordenamiento por Prioridad de Plan
+      _filteredStores.sort((a, b) {
+        // Asume que tu modelo Store tiene el campo planType o plan_type
+        int priorityA = _getPlanPriority(a.planType);
+        int priorityB = _getPlanPriority(b.planType);
+
+        if (priorityA != priorityB) {
+          // Si tienen distinto plan, prioriza el de menor número (1 Diamante > 4 Null)
+          return priorityA.compareTo(priorityB);
+        }
+        
+        // Si tienen el mismo plan, ordenamos alfabéticamente por el nombre
+        return a.name.compareTo(b.name);
+      });
     });
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
 
   MapRoute? _findFirstRouteForStore(Store store) {
     if (_currentKioskId != null) {
@@ -404,7 +446,7 @@ class _MapScreenState extends State<MapScreen> {
                         fontSize: 16,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Busca tu tienda favorita...',
+                        hintText: 'Busca tienda, categoría, nicho...', // Texto más intuitivo
                         hintStyle: const TextStyle(color: AppColors.textHint),
                         prefixIcon: const Icon(
                           Icons.search,
@@ -428,7 +470,6 @@ class _MapScreenState extends State<MapScreen> {
                   height: 48,
                   child: Row(
                     children: [
-                      // Flecha Izquierda
                       AnimatedOpacity(
                         duration: const Duration(milliseconds: 200),
                         opacity: _canScrollLeft ? 1.0 : 0.0,
@@ -441,7 +482,7 @@ class _MapScreenState extends State<MapScreen> {
                             );
                           } : null,
                           child: Container(
-                            color: Colors.transparent, // Asegura que el área sea clickeable
+                            color: Colors.transparent,
                             padding: const EdgeInsets.only(left: 16, right: 8),
                             child: const Icon(
                               Icons.arrow_back_ios_new_rounded,
@@ -452,13 +493,12 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                       ),
 
-                      // Lista de Categorías
                       Expanded(
                         child: ListView.builder(
                           controller: _categoryScrollController,
                           scrollDirection: Axis.horizontal,
                           padding: EdgeInsets.only(
-                            left: _canScrollLeft ? 0 : 12, // Ajuste dinámico de padding
+                            left: _canScrollLeft ? 0 : 12,
                             right: _canScrollRight ? 0 : 12,
                           ),
                           itemCount: _categories.length,
@@ -517,7 +557,6 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                       ),
 
-                      // Flecha Derecha
                       AnimatedOpacity(
                         duration: const Duration(milliseconds: 200),
                         opacity: _canScrollRight ? 1.0 : 0.0,
@@ -530,7 +569,7 @@ class _MapScreenState extends State<MapScreen> {
                             );
                           } : null,
                           child: Container(
-                            color: Colors.transparent, // Asegura que el área sea clickeable
+                            color: Colors.transparent,
                             padding: const EdgeInsets.only(left: 8, right: 16),
                             child: const Icon(
                               Icons.arrow_forward_ios_rounded,
@@ -563,7 +602,7 @@ class _MapScreenState extends State<MapScreen> {
                               : _filteredStores.isEmpty
                                   ? const Center(
                                       child: Text(
-                                        'No se encontraron tiendas',
+                                        'No se encontraron resultados',
                                         style: TextStyle(
                                           color: AppColors.textSecondaryMuted,
                                         ),
@@ -623,13 +662,21 @@ class _MapScreenState extends State<MapScreen> {
   // Tarjeta de tienda — Diseño horizontal compacto
   // ══════════════════════════════════════════════════════════════════════════
   Widget _buildStoreCard(Store store) {
+    // Definimos un pequeño indicador visual dependiendo de si es Diamante u Oro (Opcional)
+    Color borderColor = Colors.white10;
+    if (store.planType?.toUpperCase() == 'DIAMANTE') {
+      borderColor = AppColors.primary.withAlpha(150); // Borde brillante para Diamante
+    } else if (store.planType?.toUpperCase() == 'ORO') {
+      borderColor = Colors.amber.withAlpha(150); // Borde dorado para Oro
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.surfaceLight, 
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10), 
+        border: Border.all(color: borderColor), 
       ),
       child: Row(
         children: [
@@ -659,15 +706,24 @@ class _MapScreenState extends State<MapScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  store.name.toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        store.name.toUpperCase(),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // Opcional: Pequeño ícono si es diamante
+                    if (store.planType?.toUpperCase() == 'DIAMANTE')
+                      const Icon(Icons.diamond, color: AppColors.primary, size: 10),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(

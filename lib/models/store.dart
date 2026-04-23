@@ -7,6 +7,7 @@ class Store {
   final String floorLevel;
   final String localNumber;
   final String? nodeId;
+  final String? planType;
 
   Store({
     required this.id,
@@ -17,6 +18,7 @@ class Store {
     required this.floorLevel,
     required this.localNumber,
     this.nodeId,
+    this.planType,
   });
 
   factory Store.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class Store {
       floorLevel: json['floor_level'] ?? '',
       localNumber: json['local_number'] ?? '',
       nodeId: json['node_id'] as String?,
+      planType: json['plan_type'] as String?,
     );
   }
 
@@ -43,6 +46,7 @@ class Store {
       'floor_level': floorLevel,
       'local_number': localNumber,
       'node_id': nodeId,
+      'plan_type': planType,
     };
   }
 }
