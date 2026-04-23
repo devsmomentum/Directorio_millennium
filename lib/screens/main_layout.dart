@@ -11,6 +11,7 @@ import 'assistant_screen.dart';
 import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 import '../widgets/screen_ad_banners.dart';
 import '../widgets/app_header.dart';
+import '../widgets/inactivity_warning.dart';
 import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
@@ -29,8 +30,11 @@ class _MainLayoutState extends State<MainLayout> {
 
   // 🚀 VARIABLES PARA EL TIMEOUT DE INACTIVIDAD
   Timer? _inactivityTimer;
+  Timer? _warningTimer;
   final int _timeoutSeconds = 45; // Tiempo máximo sin tocar la pantalla
+  final int _warningBeforeSeconds = 10; // Aviso 10 segundos antes
   bool _isConfiguring = false; // Evita que el técnico sea expulsado
+  bool _showWarning = false; // Controla la visibilidad del overlay de aviso
 
   // 1. Aquí se definen las pantallas reales
   final List<Widget> _screens = [
@@ -50,26 +54,54 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   void dispose() {
     _inactivityTimer?.cancel(); // 🚀 Limpiamos el reloj al salir
+    _warningTimer?.cancel();
     _secretTapTimer?.cancel();
     super.dispose();
   }
 
-  // 🚀 LÓGICA DEL TIMEOUT FANTASMA
+  // 🚀 LÓGICA DEL TIMEOUT FANTASMA (con aviso previo)
   void _startInactivityTimer() {
     if (_isConfiguring) {
       return; // Si el técnico está configurando, no hacemos nada
     }
 
-    _inactivityTimer?.cancel(); // Matamos el reloj anterior
+    // Cancelar timers anteriores
+    _inactivityTimer?.cancel();
+    _warningTimer?.cancel();
+
+    // Ocultar el warning si estaba visible
+    if (_showWarning && mounted) {
+      setState(() => _showWarning = false);
+    }
+
+    // Timer 1: Mostrar aviso a los (timeout - 10) segundos
+    final warningDelay = _timeoutSeconds - _warningBeforeSeconds;
+    _warningTimer = Timer(
+      Duration(seconds: warningDelay),
+      () {
+        if (!mounted || _isConfiguring) return;
+        setState(() => _showWarning = true);
+      },
+    );
+
+    // Timer 2: Ejecutar timeout completo a los 45 segundos
     _inactivityTimer = Timer(
       Duration(seconds: _timeoutSeconds),
       _handleInactivity,
     );
   }
 
+  /// Reinicia el conteo completo y oculta el aviso.
+  void _dismissWarning() {
+    _startInactivityTimer();
+  }
+
   void _handleInactivity() {
     // 1. Doble check de seguridad sobre el estado del Widget
     if (!mounted || _isConfiguring) return;
+
+    // Ocultar el warning
+    setState(() => _showWarning = false);
 
     // 🚀 2. Verificamos que el árbol de navegación esté intacto y permita regresar
     if (Navigator.of(context).canPop()) {
@@ -109,6 +141,8 @@ class _MainLayoutState extends State<MainLayout> {
   void _showAdminPasswordDialog() {
     _isConfiguring = true; // 🚀 Pausamos el timeout
     _inactivityTimer?.cancel();
+    _warningTimer?.cancel();
+    if (mounted) setState(() => _showWarning = false);
 
     final TextEditingController passController = TextEditingController();
     bool isError = false;
@@ -230,16 +264,31 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
       child: Scaffold(
         backgroundColor: AppColors.background,
-        body: Column(
+        body: Stack(
           children: [
-            // Banner publicitario superior (10% fijo, igual que el inferior)
-            const TopNavigationAdBanner(),
-            // Header unificado (debajo del banner)
-            const AppHeader(),
-            // Contenido de las pestañas
-            Expanded(
-              child: IndexedStack(index: _currentIndex, children: _screens),
+            // ── Contenido principal ──
+            Column(
+              children: [
+                // Banner publicitario superior (10% fijo, igual que el inferior)
+                const TopNavigationAdBanner(),
+                // Header unificado (debajo del banner)
+                const AppHeader(),
+                // Contenido de las pestañas
+                Expanded(
+                  child: IndexedStack(index: _currentIndex, children: _screens),
+                ),
+              ],
             ),
+
+            // ── Overlay de aviso de inactividad ──
+            if (_showWarning)
+              Positioned.fill(
+                child: InactivityWarning(
+                  countdownSeconds: _warningBeforeSeconds,
+                  onDismiss: _dismissWarning,
+                  onTimeout: _handleInactivity,
+                ),
+              ),
           ],
         ),
         bottomNavigationBar: Column(

@@ -10,6 +10,7 @@ import '../models/store.dart';
 import '../models/map_route.dart';
 import '../models/map_polygon.dart';
 import '../widgets/screen_ad_banners.dart';
+import '../widgets/map_3d_viewer.dart';
 import '../theme/app_theme.dart';
 
 // ============================================================================
@@ -627,7 +628,7 @@ class _MapScreenState extends State<MapScreen> {
                         // ═══ COLUMNA B: Mapa placeholder ═══
                         Expanded(
                           flex: 5,
-                          child: _buildMapPlaceholder(),
+                          child: _build3DMapArea(),
                         ),
 
                         // ═══ COLUMNA C: Selector de pisos ═══
@@ -742,9 +743,20 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Columna B — Placeholder del mapa
+  // Columna B — Visor 3D del mapa
   // ══════════════════════════════════════════════════════════════════════════
-  Widget _buildMapPlaceholder() {
+  Widget _build3DMapArea() {
+    final modelUrl =
+        'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${_selectedFloor.toLowerCase()}.glb';
+
+    const floorLabels = {
+      'RG': '🗺 PLANTA BAJA',
+      'C1': '🗺 NIVEL C1',
+      'C2': '🗺 NIVEL C2',
+      'C3': '🗺 NIVEL C3',
+      'C4': '🗺 NIVEL C4',
+    };
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Column(
@@ -752,10 +764,10 @@ class _MapScreenState extends State<MapScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.only(bottom: 8),
-            child: const Text(
-              '🗺 PLANTA BAJA',
+            child: Text(
+              floorLabels[_selectedFloor] ?? '🗺 MAPA',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
@@ -770,24 +782,12 @@ class _MapScreenState extends State<MapScreen> {
                 color: AppColors.surfaceLight,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.map,
-                      size: 60,
-                      color: AppColors.textHint,
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      'Renderizado de Mapa Aquí',
-                      style: TextStyle(
-                        color: AppColors.textSecondaryMuted,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Map3DViewer(
+                  key: ValueKey(modelUrl),
+                  modelUrl: modelUrl,
+                  isInteractive: true,
                 ),
               ),
             ),
