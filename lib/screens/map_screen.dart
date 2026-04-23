@@ -16,7 +16,6 @@ import '../theme/app_theme.dart';
 // Constantes de pisos
 // ============================================================================
 const Map<String, int> _floorNameToNum = {
-  'PL': 6,
   'C4': 5,
   'C3': 4,
   'C2': 3,
@@ -24,7 +23,6 @@ const Map<String, int> _floorNameToNum = {
   'RG': 1,
 };
 const Map<int, String> _floorNumToName = {
-  6: 'PL',
   5: 'C4',
   4: 'C3',
   3: 'C2',
@@ -42,6 +40,11 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final SupabaseService _supabaseService = SupabaseService();
   final TextEditingController _searchController = TextEditingController();
+  
+  // 🚀 Controladores para las flechas dinámicas de categorías
+  final ScrollController _categoryScrollController = ScrollController();
+  bool _canScrollLeft = false;
+  bool _canScrollRight = true;
 
   List<Store> _allStores = [];
   List<Store> _filteredStores = [];
@@ -57,7 +60,7 @@ class _MapScreenState extends State<MapScreen> {
 
   // Datos del kiosco actual
   String? _currentKioskId;
-  int? _kioskFloorLevel; // Piso numérico del kiosco
+  int? _kioskFloorLevel;
   List<MapRoute> _allRoutes = [];
   List<MapPolygon> _allPolygons = [];
 
@@ -66,13 +69,34 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _loadData();
     _setupRealtime();
+    
+    // Escuchar el scroll para actualizar las flechas
+    _categoryScrollController.addListener(_updateCategoryScrollState);
   }
 
   @override
   void dispose() {
     _realtimeChannel?.unsubscribe();
     _searchController.dispose();
+    _categoryScrollController.dispose(); // Limpiamos el controlador
     super.dispose();
+  }
+
+  // 🚀 Lógica para ocultar/mostrar flechas de categorías
+  void _updateCategoryScrollState() {
+    if (!_categoryScrollController.hasClients) return;
+    
+    final canLeft = _categoryScrollController.position.pixels > 0;
+    final canRight = _categoryScrollController.position.pixels < _categoryScrollController.position.maxScrollExtent;
+    
+    if (canLeft != _canScrollLeft || canRight != _canScrollRight) {
+      if (mounted) {
+        setState(() {
+          _canScrollLeft = canLeft;
+          _canScrollRight = canRight;
+        });
+      }
+    }
   }
 
   void _setupRealtime() {
@@ -118,7 +142,6 @@ class _MapScreenState extends State<MapScreen> {
       final storesJson = stores.map((s) => s.toJson()).toList();
       await box.put('cached_stores', storesJson);
 
-      // Cargar rutas, nodos, polígonos y datos del kiosco
       final routes = await _supabaseService.getMapRoutes();
       final nodes = await _supabaseService.getMapNodes();
       final polygons = await _supabaseService.getMapPolygons();
@@ -130,7 +153,6 @@ class _MapScreenState extends State<MapScreen> {
       if (kioskId != null) {
         final kioskData = await _supabaseService.getKioskById(kioskId);
         if (kioskData != null && kioskData['node_id'] != null) {
-          // Buscar el nodo del kiosco para saber su piso
           final kioskNodeId = kioskData['node_id'] as String;
           try {
             final kioskNode = nodes.firstWhere((n) => n.id == kioskNodeId);
@@ -196,6 +218,8 @@ class _MapScreenState extends State<MapScreen> {
         _filterStores();
         _isLoading = false;
       });
+      // Verificamos si las nuevas categorías caben en pantalla o necesitan flechas
+      WidgetsBinding.instance.addPostFrameCallback((_) => _updateCategoryScrollState());
     }
   }
 
@@ -309,7 +333,6 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  /// Busca la primera ruta asociada a la tienda (como destino o como origen).
   MapRoute? _findFirstRouteForStore(Store store) {
     if (_currentKioskId != null) {
       for (final route in _allRoutes) {
@@ -334,7 +357,6 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  /// Busca el polígono asociado a la tienda en el mapa.
   MapPolygon? _findPolygonForStore(Store store) {
     for (final polygon in _allPolygons) {
       if (polygon.storeId == store.id) {
@@ -344,14 +366,10 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  /// Determina el piso numérico de una tienda.
   int _getStoreFloorNum(Store store) {
     return _floorNameToNum[store.floorLevel] ?? 1;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Al tocar una tienda, preparar selección para la Columna B (futuro)
-  // ══════════════════════════════════════════════════════════════════════════
   void _onStoreTapped(Store store) {
     AnalyticsService().logEvent(
       eventType: 'click',
@@ -362,9 +380,6 @@ class _MapScreenState extends State<MapScreen> {
     // TODO: Actualizar Columna B con la ubicación de esta tienda
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // BUILD — Layout de 3 columnas tipo Kiosco Sunmi K2 Pro
-  // ══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -376,7 +391,7 @@ class _MapScreenState extends State<MapScreen> {
           children: [
             Column(
               children: [
-                // ── Fila 1: Barra de búsqueda (Optimizada en tamaño) ──
+                // ── Fila 1: Barra de búsqueda ──
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                   child: SizedBox(
@@ -408,65 +423,124 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // ── Fila 2: Categorías (chips horizontales compactos) ──
+                // ── Fila 2: Categorías con Flechas Dinámicas estilo iOS ──
                 SizedBox(
                   height: 48,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _categories.length,
-                    itemBuilder: (context, index) {
-                      final cat = _categories[index];
-                      final isSelected = _selectedCategory == cat['name'];
-                      return GestureDetector(
-                        onTap: () {
-                          AnalyticsService().logEvent(
-                            eventType: 'filter',
-                            module: 'directory',
-                            itemName: 'Categoria: ${cat['name']}',
-                          );
-                          setState(() => _selectedCategory = cat['name']);
-                          _filterStores();
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 4,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? AppColors.primary
-                                : AppColors.surfaceLight,
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                cat['icon'] as IconData,
-                                color: isSelected
-                                    ? AppColors.textPrimary
-                                    : AppColors.textSecondaryMuted,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                cat['name'] as String,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? AppColors.textPrimary
-                                      : AppColors.textSecondaryMuted,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
+                  child: Row(
+                    children: [
+                      // Flecha Izquierda
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 200),
+                        opacity: _canScrollLeft ? 1.0 : 0.0,
+                        child: GestureDetector(
+                          onTap: _canScrollLeft ? () {
+                            _categoryScrollController.animateTo(
+                              _categoryScrollController.offset - 250,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          } : null,
+                          child: Container(
+                            color: Colors.transparent, // Asegura que el área sea clickeable
+                            padding: const EdgeInsets.only(left: 16, right: 8),
+                            child: const Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              size: 18,
+                              color: AppColors.textSecondaryMuted,
+                            ),
                           ),
                         ),
-                      );
-                    },
+                      ),
+
+                      // Lista de Categorías
+                      Expanded(
+                        child: ListView.builder(
+                          controller: _categoryScrollController,
+                          scrollDirection: Axis.horizontal,
+                          padding: EdgeInsets.only(
+                            left: _canScrollLeft ? 0 : 12, // Ajuste dinámico de padding
+                            right: _canScrollRight ? 0 : 12,
+                          ),
+                          itemCount: _categories.length,
+                          itemBuilder: (context, index) {
+                            final cat = _categories[index];
+                            final isSelected = _selectedCategory == cat['name'];
+                            return GestureDetector(
+                              onTap: () {
+                                AnalyticsService().logEvent(
+                                  eventType: 'filter',
+                                  module: 'directory',
+                                  itemName: 'Categoria: ${cat['name']}',
+                                );
+                                setState(() => _selectedCategory = cat['name']);
+                                _filterStores();
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 250),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 4,
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : AppColors.surfaceLight,
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      cat['icon'] as IconData,
+                                      color: isSelected
+                                          ? AppColors.textPrimary
+                                          : AppColors.textSecondaryMuted,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      cat['name'] as String,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? AppColors.textPrimary
+                                            : AppColors.textSecondaryMuted,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      // Flecha Derecha
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 200),
+                        opacity: _canScrollRight ? 1.0 : 0.0,
+                        child: GestureDetector(
+                          onTap: _canScrollRight ? () {
+                            _categoryScrollController.animateTo(
+                              _categoryScrollController.offset + 250,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          } : null,
+                          child: Container(
+                            color: Colors.transparent, // Asegura que el área sea clickeable
+                            padding: const EdgeInsets.only(left: 8, right: 16),
+                            child: const Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 18,
+                              color: AppColors.textSecondaryMuted,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -546,7 +620,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Tarjeta de tienda — Diseño horizontal compacto (Solo Logo, Nombre, Nivel)
+  // Tarjeta de tienda — Diseño horizontal compacto
   // ══════════════════════════════════════════════════════════════════════════
   Widget _buildStoreCard(Store store) {
     return Container(
@@ -555,11 +629,10 @@ class _MapScreenState extends State<MapScreen> {
       decoration: BoxDecoration(
         color: AppColors.surfaceLight, 
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10), // Borde sutil
+        border: Border.all(color: Colors.white10), 
       ),
       child: Row(
         children: [
-          // Logo compacto con fondo blanco para preservar la legibilidad
           Container(
             width: 45,
             height: 45,
@@ -571,7 +644,7 @@ class _MapScreenState extends State<MapScreen> {
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
                 store.logoUrl,
-                fit: BoxFit.contain, // Contain evita que el logo se corte
+                fit: BoxFit.contain, 
                 errorBuilder: (_, __, ___) => const Icon(
                   Icons.store,
                   size: 24,
@@ -581,7 +654,6 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          // Información de la tienda (Reducida a lo esencial)
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -670,10 +742,10 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Columna C — Selector de pisos (Optimizado contra Overflow)
+  // Columna C — Selector de pisos
   // ══════════════════════════════════════════════════════════════════════════
   Widget _buildFloorSelector() {
-    final floors = ['RG', 'PL', 'C1', 'C2', 'C3', 'C4'];
+    final floors = ['C4', 'C3', 'C2', 'C1', 'RG'];
     return Column(
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
@@ -689,7 +761,6 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
         ),
-        // 🛠️ SOLUCIÓN OVERFLOW: Envolver los botones en un ListView expandido
         Expanded(
           child: ListView.builder(
             padding: EdgeInsets.zero,
@@ -761,7 +832,6 @@ class _KioskLongPressZoneState extends State<_KioskLongPressZone> {
       _progress = 0.0;
     });
 
-    // Actualizar progreso visual cada 50ms
     _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (mounted) {
         setState(() {
@@ -770,7 +840,6 @@ class _KioskLongPressZoneState extends State<_KioskLongPressZone> {
       }
     });
 
-    // Disparar a los 5 segundos
     _longPressTimer = Timer(const Duration(seconds: 5), () {
       _cancelTimers();
       if (mounted) {
@@ -874,7 +943,6 @@ class _KioskSelectorModalState extends State<_KioskSelectorModal> {
       final prefs = await SharedPreferences.getInstance();
       _currentKioskId = prefs.getString('kiosk_id');
 
-      // Traer TODOS los kioscos (no solo los libres)
       final response = await client.from('kiosks').select();
 
       if (mounted) {
