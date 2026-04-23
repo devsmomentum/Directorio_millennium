@@ -10,7 +10,7 @@ import '../models/store.dart';
 import '../models/map_route.dart';
 import '../models/map_polygon.dart';
 import '../widgets/screen_ad_banners.dart';
-import '../widgets/map_3d_viewer.dart';
+import '../widgets/map_view_web.dart';
 import '../theme/app_theme.dart';
 
 // ============================================================================
@@ -39,6 +39,8 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  // Key global para acceder al estado de MapViewWeb (comunicación Flutter→Web)
+  final GlobalKey<MapViewWebState> _mapViewKey = GlobalKey<MapViewWebState>();
   final SupabaseService _supabaseService = SupabaseService();
   final TextEditingController _searchController = TextEditingController();
   
@@ -743,9 +745,10 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Columna B — Visor 3D del mapa
+  // Columna B — Visor 3D del mapa (InAppWebView + model-viewer)
   // ══════════════════════════════════════════════════════════════════════════
   Widget _build3DMapArea() {
+    // URL dinámica apuntando al bucket de Supabase según el piso seleccionado
     final modelUrl =
         'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${_selectedFloor.toLowerCase()}.glb';
 
@@ -761,6 +764,7 @@ class _MapScreenState extends State<MapScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Column(
         children: [
+          // Etiqueta del piso actual
           Container(
             width: double.infinity,
             padding: const EdgeInsets.only(bottom: 8),
@@ -775,19 +779,27 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+
+          // Visor 3D con MapViewWeb (recarga al cambiar de piso)
           Expanded(
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: AppColors.surfaceLight,
+                color: AppColors.background,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
-                child: Map3DViewer(
-                  key: ValueKey(modelUrl),
+                child: MapViewWeb(
+                  // ValueKey fuerza reconstrucción al cambiar de piso
+                  key: ValueKey(_selectedFloor),
                   modelUrl: modelUrl,
-                  isInteractive: true,
+                  onMapLoaded: () {
+                    debugPrint('[MapScreen] Mapa del piso $_selectedFloor cargado');
+                  },
+                  onError: () {
+                    debugPrint('[MapScreen] Error cargando mapa de $_selectedFloor');
+                  },
                 ),
               ),
             ),

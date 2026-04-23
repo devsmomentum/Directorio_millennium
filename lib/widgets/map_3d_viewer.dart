@@ -1,21 +1,18 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_3d_controller/flutter_3d_controller.dart';
 
 import '../theme/app_theme.dart';
+import 'platform_check_stub.dart'
+    if (dart.library.io) 'platform_check_io.dart' as platform_check;
 
-/// Widget reutilizable que renderiza un modelo 3D (.glb) de forma interactiva.
+/// Visor 3D interactivo para planos de centro comercial (.glb).
 ///
-/// Usa [flutter_3d_controller] internamente con gesture interceptor activo
-/// para evitar conflictos de gestos con el layout padre (scroll, swipe, etc.).
+/// Usa [Flutter3DViewer] de flutter_3d_controller con gesture interceptor.
+/// En Linux/Windows muestra un fallback elegante.
 class Map3DViewer extends StatefulWidget {
-  /// URL del archivo .glb (Supabase Storage o cualquier URL pública).
   final String modelUrl;
-
-  /// Si es `true`, permite orbitar, pan y zoom con gestos táctiles.
   final bool isInteractive;
-
-  /// (Futuro) ID del objetivo a resaltar o enfocar en el mapa.
-  /// Cuando se implemente, se usará [Flutter3DController.setCameraTarget].
   final String? highlightTargetId;
 
   const Map3DViewer({
@@ -35,107 +32,97 @@ class _Map3DViewerState extends State<Map3DViewer> {
   bool _isLoading = true;
   bool _hasError = false;
   double _loadProgress = 0.0;
+  final Stopwatch _sw = Stopwatch();
 
-  // ── Logging ──
-  final Stopwatch _loadStopwatch = Stopwatch();
-  double _lastLoggedProgress = -1; // Para no loguear el mismo % repetido
+  bool get _supported {
+    if (kIsWeb) return true;
+    return platform_check.isWebViewSupported;
+  }
 
   @override
   void initState() {
     super.initState();
-    _log('🟢 INIT', 'Widget creado para URL: ${widget.modelUrl}');
-    _log('🟢 INIT', 'isInteractive: ${widget.isInteractive}');
-    _loadStopwatch.start();
+    _sw.start();
+    debugPrint('[Map3DViewer][INIT] URL: ${widget.modelUrl}');
 
-    // Listener para saber cuando el modelo termina de cargar
-    _controller.onModelLoaded.addListener(_onModelLoadedChanged);
+    if (_supported) {
+      _controller.onModelLoaded.addListener(_onLoaded);
+    }
   }
 
   @override
   void dispose() {
-    _loadStopwatch.stop();
-    _log('🔴 DISPOSE', 'Widget destruido. Tiempo total de vida: ${_loadStopwatch.elapsed.inSeconds}s');
-    _controller.onModelLoaded.removeListener(_onModelLoadedChanged);
+    _sw.stop();
+    debugPrint('[Map3DViewer][DISPOSE] Vida: ${_sw.elapsed.inSeconds}s');
+    if (_supported) {
+      _controller.onModelLoaded.removeListener(_onLoaded);
+    }
     super.dispose();
   }
 
-  void _onModelLoadedChanged() {
-    final loaded = _controller.onModelLoaded.value;
-    _log('📡 LISTENER', 'onModelLoaded cambió a: $loaded');
-    if (loaded && mounted) {
-      _loadStopwatch.stop();
-      _log('✅ LISTENER', 'Modelo cargado vía listener en ${_loadStopwatch.elapsed.inMilliseconds}ms');
+  void _onLoaded() {
+    if (_controller.onModelLoaded.value && mounted) {
+      _sw.stop();
+      debugPrint('[Map3DViewer][LOADED] ${_sw.elapsed.inMilliseconds}ms');
       setState(() {
         _isLoading = false;
         _hasError = false;
       });
+      _setupCamera();
     }
   }
 
-  /// Log centralizado con timestamp y etiqueta
-  void _log(String tag, String message) {
-    final elapsed = _loadStopwatch.isRunning ? '${_loadStopwatch.elapsed.inMilliseconds}ms' : '--';
-    debugPrint('[Map3DViewer][$tag][$elapsed] $message');
+  /// Configura la vista inicial de cámara tras carga del modelo.
+  void _setupCamera() {
+    try {
+      // Vista cenital inclinada: theta=0 (frente), phi=45 (inclinado), radius=5
+      _controller.setCameraOrbit(0, 45, 5);
+      _controller.setCameraTarget(0, 0, 0);
+    } catch (e) {
+      debugPrint('[Map3DViewer][CAMERA] Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_supported) return _buildFallback();
+
     return Stack(
       children: [
         // ── Visor 3D ──
         Positioned.fill(
           child: Flutter3DViewer(
-            // Previene conflictos de gestos con widgets padre (scroll, etc.)
             activeGestureInterceptor: true,
-            // Ocultamos la barra de progreso nativa — usamos la nuestra
             progressBarColor: Colors.transparent,
-            // Habilita o deshabilita interacción táctil
             enableTouch: widget.isInteractive,
             controller: _controller,
             src: widget.modelUrl,
-            onProgress: (double progressValue) {
-              // Solo logueamos cada 10% para no inundar la consola
-              final progressPercent = (progressValue * 100).toInt();
-              final lastPercent = (_lastLoggedProgress * 100).toInt();
-              if (progressPercent ~/ 10 != lastPercent ~/ 10 || progressValue == 1.0) {
-                _log('📊 PROGRESS', '$progressPercent% — elapsed: ${_loadStopwatch.elapsed.inMilliseconds}ms');
-                _lastLoggedProgress = progressValue;
-              }
-
-              if (mounted) {
-                setState(() => _loadProgress = progressValue);
+            onProgress: (double v) {
+              if (mounted) setState(() => _loadProgress = v);
+              final pct = (v * 100).toInt();
+              if (pct % 20 == 0 || v == 1.0) {
+                debugPrint('[Map3DViewer][PROGRESS] $pct%');
               }
             },
-            onLoad: (String modelAddress) {
-              _loadStopwatch.stop();
-              _log('✅ ON_LOAD', 'Modelo cargado exitosamente');
-              _log('✅ ON_LOAD', 'Dirección: $modelAddress');
-              _log('✅ ON_LOAD', 'Tiempo total de carga: ${_loadStopwatch.elapsed.inMilliseconds}ms');
+            onLoad: (String addr) {
+              _sw.stop();
+              debugPrint('[Map3DViewer][ON_LOAD] OK en ${_sw.elapsed.inMilliseconds}ms');
               if (mounted) {
-                setState(() {
-                  _isLoading = false;
-                  _hasError = false;
-                });
+                setState(() { _isLoading = false; _hasError = false; });
+                _setupCamera();
               }
             },
             onError: (String error) {
-              _loadStopwatch.stop();
-              _log('❌ ON_ERROR', 'Error al cargar modelo');
-              _log('❌ ON_ERROR', 'Detalle: $error');
-              _log('❌ ON_ERROR', 'URL intentada: ${widget.modelUrl}');
-              _log('❌ ON_ERROR', 'Tiempo hasta el error: ${_loadStopwatch.elapsed.inMilliseconds}ms');
-              _log('❌ ON_ERROR', 'Progreso alcanzado: ${(_loadProgress * 100).toInt()}%');
+              _sw.stop();
+              debugPrint('[Map3DViewer][ERROR] $error');
               if (mounted) {
-                setState(() {
-                  _isLoading = false;
-                  _hasError = true;
-                });
+                setState(() { _isLoading = false; _hasError = true; });
               }
             },
           ),
         ),
 
-        // ── Overlay de carga ──
+        // ── Loading overlay ──
         if (_isLoading)
           Positioned.fill(
             child: Container(
@@ -145,12 +132,10 @@ class _Map3DViewerState extends State<Map3DViewer> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
-                      width: 48,
-                      height: 48,
+                      width: 48, height: 48,
                       child: CircularProgressIndicator(
                         value: _loadProgress > 0 ? _loadProgress : null,
-                        color: AppColors.primary,
-                        strokeWidth: 3,
+                        color: AppColors.primary, strokeWidth: 3,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -159,17 +144,7 @@ class _Map3DViewerState extends State<Map3DViewer> {
                           ? 'Cargando mapa… ${(_loadProgress * 100).toInt()}%'
                           : 'Cargando mapa…',
                       style: const TextStyle(
-                        color: AppColors.textSecondaryMuted,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_loadStopwatch.elapsed.inSeconds}s',
-                      style: const TextStyle(
-                        color: AppColors.textHint,
-                        fontSize: 11,
-                      ),
+                          color: AppColors.textSecondaryMuted, fontSize: 13),
                     ),
                   ],
                 ),
@@ -177,7 +152,7 @@ class _Map3DViewerState extends State<Map3DViewer> {
             ),
           ),
 
-        // ── Overlay de error ──
+        // ── Error overlay ──
         if (_hasError)
           Positioned.fill(
             child: Container(
@@ -187,41 +162,62 @@ class _Map3DViewerState extends State<Map3DViewer> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 64,
-                      height: 64,
+                      width: 64, height: 64,
                       decoration: BoxDecoration(
                         color: AppColors.error.withAlpha(25),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Icon(
-                        Icons.map_outlined,
-                        size: 32,
-                        color: AppColors.error.withAlpha(180),
-                      ),
+                      child: Icon(Icons.map_outlined, size: 32,
+                          color: AppColors.error.withAlpha(180)),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'No se pudo cargar el mapa',
-                      style: TextStyle(
-                        color: AppColors.textSecondaryMuted,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    const Text('No se pudo cargar el mapa',
+                        style: TextStyle(color: AppColors.textSecondaryMuted,
+                            fontSize: 14, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 6),
-                    const Text(
-                      'Verifica tu conexión o intenta de nuevo',
-                      style: TextStyle(
-                        color: AppColors.textHint,
-                        fontSize: 12,
-                      ),
-                    ),
+                    const Text('Verifica tu conexión o intenta de nuevo',
+                        style: TextStyle(color: AppColors.textHint, fontSize: 12)),
                   ],
                 ),
               ),
             ),
           ),
       ],
+    );
+  }
+
+  /// Fallback para plataformas sin soporte de WebView.
+  Widget _buildFallback() {
+    return Container(
+      color: AppColors.surfaceLight,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80, height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(20),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(Icons.desktop_windows_outlined, size: 40,
+                  color: AppColors.primary.withAlpha(150)),
+            ),
+            const SizedBox(height: 20),
+            const Text('Vista 3D no disponible',
+                style: TextStyle(color: AppColors.textPrimary,
+                    fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            const Text(
+              'El visor 3D requiere Android o Web (Chrome).\n'
+              'Usa flutter run -d chrome para probar.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondaryMuted,
+                  fontSize: 12, height: 1.5),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
