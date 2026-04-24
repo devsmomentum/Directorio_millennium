@@ -27,20 +27,6 @@ const NodeWorldMapping _kNodeWorldMapping = NodeWorldMapping.identity;
 // ============================================================================
 // Constantes de pisos
 // ============================================================================
-const Map<String, int> _floorNameToNum = {
-  'C4': 5,
-  'C3': 4,
-  'C2': 3,
-  'C1': 2,
-  'RG': 1,
-};
-const Map<int, String> _floorNumToName = {
-  5: 'C4',
-  4: 'C3',
-  3: 'C2',
-  2: 'C1',
-  1: 'RG',
-};
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -75,7 +61,7 @@ class _MapScreenState extends State<MapScreen> {
   // Datos del kiosco actual
   String? _currentKioskId;
   String? _currentKioskNodeId;
-  int? _kioskFloorLevel;
+  String? _kioskFloorLevel;
   List<MapRoute> _allRoutes = [];
   List<MapPolygon> _allPolygons = [];
   List<MapNode> _allNodes = const [];
@@ -211,7 +197,7 @@ class _MapScreenState extends State<MapScreen> {
       final prefs = await SharedPreferences.getInstance();
       final kioskId = prefs.getString('kiosk_id');
 
-      int? kioskFloor;
+      String? kioskFloor;
       String? kioskNodeId;
       if (kioskId == null) {
         debugPrint(
@@ -506,9 +492,7 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  int _getStoreFloorNum(Store store) {
-    return _floorNameToNum[store.floorLevel] ?? 1;
-  }
+
 
   void _onStoreTapped(Store store) {
     AnalyticsService().logEvent(
@@ -520,8 +504,7 @@ class _MapScreenState extends State<MapScreen> {
 
     // Si la tienda está en otro piso, cambiamos la vista primero; la ruta se
     // dispara cuando el nuevo mapa esté cargado (ver `onMapLoaded`).
-    final storeFloorNum = _getStoreFloorNum(store);
-    final targetFloorName = _floorNumToName[storeFloorNum];
+    final targetFloorName = store.floorLevel;
 
     setState(() {
       _selectedStoreForRoute = store;
@@ -570,7 +553,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    final currentFloorNum = _floorNameToNum[_selectedFloor];
+    final currentFloorNum = _selectedFloor;
     debugPrint(
       '[MapScreen] Calculando ruta: kiosko=$_currentKioskNodeId → '
       'tienda="${store.name}" (node=${store.nodeId}) '
@@ -946,6 +929,7 @@ class _MapScreenState extends State<MapScreen> {
 
     const floorLabels = {
       'RG': '🗺 PLANTA BAJA',
+      'PL': '🗺 NIVEL PL',
       'C1': '🗺 NIVEL C1',
       'C2': '🗺 NIVEL C2',
       'C3': '🗺 NIVEL C3',
@@ -1034,7 +1018,7 @@ class _MapScreenState extends State<MapScreen> {
   // Columna C — Selector de pisos
   // ══════════════════════════════════════════════════════════════════════════
   Widget _buildFloorSelector() {
-    final floors = ['C4', 'C3', 'C2', 'C1', 'RG'];
+    final floors = ['RG','PL','C1','C2', 'C3', 'C4'];
     return Column(
       mainAxisAlignment: MainAxisAlignment.start,
       children: [

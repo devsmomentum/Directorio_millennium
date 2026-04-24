@@ -788,7 +788,7 @@
     // FLOOR MODEL LOADING
     // ════════════════════════════════════════
     function getFloorNumber(code) {
-        return { rg:1, pl:2, c1:3, c2:4, c3:5, c4:6 }[code] || 0;
+        return { rg:'RG', pl:'PL', c1:'C1', c2:'C2', c3:'C3', c4:'C4' }[code] || 'RG';
     }
 
     const loader = new GLTFLoader();
@@ -1330,7 +1330,7 @@
             sql += `-- === UPSERT MAP NODES ===\n`;
             nodesToSync.forEach(n => {
                 sql += `INSERT INTO public.map_nodes (id, floor_level, x, y, z_height, node_type, is_3d)\n`;
-                sql += `VALUES ('${n.id}', ${n.floor_level}, ${n.x}, ${n.y}, ${n.z_height}, '${n.node_type}', ${n.is_3d})\n`;
+                sql += `VALUES ('${n.id}', '${n.floor_level}', ${n.x}, ${n.y}, ${n.z_height}, '${n.node_type}', ${n.is_3d})\n`;
                 sql += `ON CONFLICT (id) DO UPDATE SET\n`;
                 sql += `  floor_level = EXCLUDED.floor_level, x = EXCLUDED.x, y = EXCLUDED.y,\n`;
                 sql += `  z_height = EXCLUDED.z_height, node_type = EXCLUDED.node_type, is_3d = EXCLUDED.is_3d;\n\n`;

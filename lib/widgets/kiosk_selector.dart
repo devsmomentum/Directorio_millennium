@@ -7,14 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/kiosk_bus.dart';
 import '../theme/app_theme.dart';
 
-/// Mapa numérico → etiqueta de piso (idéntico al usado en MapScreen).
-const Map<int, String> _kFloorNumToName = {
-  5: 'C4',
-  4: 'C3',
-  3: 'C2',
-  2: 'C1',
-  1: 'RG',
-};
+// MapScreen maneja los pisos como strings (ej. 'RG', 'C1', etc.)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Zona invisible de long-press: envuelve un child y, tras mantener presionado
@@ -143,7 +136,7 @@ class _KioskLongPressZoneState extends State<KioskLongPressZone> {
 // ═════════════════════════════════════════════════════════════════════════════
 // Diálogo: lista kioscos de la BD con nombre, ubicación y piso.
 // - `kiosks.floor` (text) tiene prioridad si está poblado.
-// - Fallback: join `kiosks.node_id → map_nodes.floor_level` (num → etiqueta).
+// - Fallback: join `kiosks.node_id → map_nodes.floor_level` (string).
 // Al confirmar guarda en SharedPreferences y dispara `KioskBus.notifyKioskChanged()`.
 // ═════════════════════════════════════════════════════════════════════════════
 class KioskSelectorDialog extends StatefulWidget {
@@ -183,9 +176,9 @@ class _KioskSelectorDialogState extends State<KioskSelectorDialog> {
       final kiosksRaw = List<Map<String, dynamic>>.from(responses[0] as List);
       final nodesRaw = List<Map<String, dynamic>>.from(responses[1] as List);
 
-      final nodeFloorById = <String, int>{
+      final nodeFloorById = <String, String>{
         for (final n in nodesRaw)
-          (n['id'] as String): (n['floor_level'] as num).toInt(),
+          (n['id'] as String): n['floor_level'].toString(),
       };
 
       final rows = kiosksRaw.map((k) {
@@ -197,7 +190,7 @@ class _KioskSelectorDialogState extends State<KioskSelectorDialog> {
         if (floorText != null && floorText.isNotEmpty) {
           floorLabel = floorText.toUpperCase();
         } else if (floorFromNode != null) {
-          floorLabel = _kFloorNumToName[floorFromNode] ?? 'N$floorFromNode';
+          floorLabel = floorFromNode;
         }
 
         return _KioskRow(

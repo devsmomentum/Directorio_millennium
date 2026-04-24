@@ -92,7 +92,7 @@ class AvatarNavigationService {
   AvatarRoute routeFromKioskToStore({
     required String? kioskNodeId,
     required Store store,
-    int? currentFloorLevel,
+    String? currentFloorLevel,
   }) {
     if (kioskNodeId == null || kioskNodeId.isEmpty) {
       return AvatarRoute.error('El kiosko actual no tiene node_id asignado');
@@ -114,7 +114,7 @@ class AvatarNavigationService {
   AvatarRoute routeBetweenNodes({
     required String startNodeId,
     required String targetNodeId,
-    int? currentFloorLevel,
+    String? currentFloorLevel,
   }) {
     if (!isReady) {
       debugPrint(

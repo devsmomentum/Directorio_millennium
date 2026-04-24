@@ -17,7 +17,7 @@ class MapPolygon {
   final String name;
   final String color;
   final List<PolygonPoint> points;
-  final int floorLevel;
+  final String floorLevel;
   final String? storeId;
 
   MapPolygon({
@@ -45,7 +45,7 @@ class MapPolygon {
       name: json['name'] ?? '',
       color: json['color'] ?? '#4466ff',
       points: pts,
-      floorLevel: json['floor_level'] as int,
+      floorLevel: json['floor_level'].toString(),
       storeId: json['store_id'] as String?,
     );
   }

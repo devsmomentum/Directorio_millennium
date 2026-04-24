@@ -31,14 +31,17 @@ class _MapScreenState extends State<MapScreen>
   bool _isSearching =
       false; // 🆕 Controla si mostramos los resultados flotantes
 
-  int _selectedFloor = 1;
+  String _selectedFloor = 'RG';
 
   late AnimationController _routeAnimationController;
 
   final List<Map<String, dynamic>> _mallFloors = [
-    {'level': 3, 'name': 'C2'},
-    {'level': 2, 'name': 'C1'},
-    {'level': 1, 'name': 'RG'},
+    {'level': 'C4', 'name': 'C4'},
+    {'level': 'C3', 'name': 'C3'},
+    {'level': 'C2', 'name': 'C2'},
+    {'level': 'C1', 'name': 'C1'},
+    {'level': 'PL', 'name': 'PL'},
+    {'level': 'RG', 'name': 'RG'},
   ];
 
   @override
@@ -327,11 +330,11 @@ class _MapScreenState extends State<MapScreen>
 
   String _getMapImageForCurrentFloor() {
     switch (_selectedFloor) {
-      case 3:
+      case 'C2':
         return 'https://dummyimage.com/2000x2000/1A1A1A/FF007A&text=Plano+Nivel+C2';
-      case 2:
+      case 'C1':
         return 'https://dummyimage.com/2000x2000/1A1A1A/FF007A&text=Plano+Nivel+C1';
-      case 1:
+      case 'RG':
       default:
         return 'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_rg.png';
     }

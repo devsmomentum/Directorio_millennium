@@ -1,6 +1,6 @@
 class MapNode {
   final String id;
-  final int floorLevel;
+  final String floorLevel;
   final double x;
   final double y;
   final double zHeight;
@@ -20,7 +20,7 @@ class MapNode {
   factory MapNode.fromJson(Map<String, dynamic> json) {
     return MapNode(
       id: json['id'] as String,
-      floorLevel: json['floor_level'] as int,
+      floorLevel: json['floor_level'].toString(),
       x: (json['x'] as num).toDouble(),
       y: (json['y'] as num).toDouble(),
       zHeight: json['z_height'] == null

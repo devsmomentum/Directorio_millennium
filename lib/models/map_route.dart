@@ -17,7 +17,7 @@ class MapRoute {
   final String name;
   final String color;
   final List<MapRoutePoint> points;
-  final int floorLevel;
+  final String floorLevel;
   final String? originType;
   final String? originId;
   final String? destType;
@@ -51,7 +51,7 @@ class MapRoute {
       name: json['name'] ?? '',
       color: json['color'] ?? '#22d3ee',
       points: pts,
-      floorLevel: json['floor_level'] as int,
+      floorLevel: json['floor_level'].toString(),
       originType: json['origin_type'] as String?,
       originId: json['origin_id'] as String?,
       destType: json['dest_type'] as String?,
