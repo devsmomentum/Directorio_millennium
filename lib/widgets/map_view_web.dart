@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -29,12 +30,16 @@ class MapViewWeb extends StatefulWidget {
   /// Callback cuando ocurre un error de carga
   final VoidCallback? onError;
 
+  /// Callback cuando el avatar llega al último waypoint de la ruta.
+  final VoidCallback? onAvatarArrived;
+
   const MapViewWeb({
     Key? key,
     required this.modelUrl,
     this.avatarUrl,
     this.onMapLoaded,
     this.onError,
+    this.onAvatarArrived,
   }) : super(key: key);
 
   @override
@@ -70,8 +75,6 @@ class MapViewWebState extends State<MapViewWeb> {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mapa 3D</title>
 
-  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -97,20 +100,6 @@ class MapViewWebState extends State<MapViewWeb> {
       display: block;
       background: transparent;
       touch-action: none;
-    }
-
-    /* Overlay del avatar (se mantiene por compatibilidad) */
-    model-viewer#avatar-viewer {
-      position: absolute;
-      width: 60px;
-      height: 60px;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: transparent;
-      --poster-color: transparent;
-      pointer-events: none;
-      display: none; /* Oculto hasta que se cargue un avatar */
     }
 
     /* Botón de centrado mejorado estilo App moderna */
@@ -148,16 +137,6 @@ class MapViewWebState extends State<MapViewWeb> {
   <div id="viewer-container">
     <canvas id="map-canvas"></canvas>
 
-    <model-viewer
-      id="avatar-viewer"
-      alt="Avatar del usuario"
-      autoplay
-      animation-name="Caminar"
-      shadow-intensity="0"
-      environment-image="neutral"
-      exposure="1"
-    ></model-viewer>
-
     <button id="center-view-btn" type="button" aria-label="Centrar mapa"></button>
   </div>
 
@@ -171,11 +150,32 @@ class MapViewWebState extends State<MapViewWeb> {
 
     const container = document.getElementById('viewer-container');
     const canvas = document.getElementById('map-canvas');
-    const avatarViewer = document.getElementById('avatar-viewer');
     const centerViewBtn = document.getElementById('center-view-btn');
 
-    let avatarMoving = false;
-    let avatarAnimFrame = null;
+    // ─────────────────────────────────────────────────────────────────
+    // Estado del avatar 3D (in-scene, no DOM overlay)
+    // ─────────────────────────────────────────────────────────────────
+    const avatarState = {
+      root: null,               // THREE.Group cargado del .glb
+      mixer: null,              // THREE.AnimationMixer
+      clips: {},                // {walk, idle} → THREE.AnimationClip
+      activeAction: null,       // THREE.AnimationAction actual
+      scale: 1.0,               // escala opcional para ajustar al mapa
+      yOffset: 0.0,             // corrección para apoyar los pies en el piso
+      ready: false,
+      pendingRoute: null,       // ruta recibida antes de que el modelo estuviera listo
+
+      // Estado de navegación
+      route: [],                // Array<Vector3>
+      segmentIndex: 0,          // tramo actual (de route[i] a route[i+1])
+      segmentProgress: 0.0,     // 0..1 dentro del tramo
+      segmentDuration: 0.0,     // segundos para completar el tramo actual
+      speed: 1.2,               // unidades/segundo por defecto
+      isWalking: false,
+      targetQuat: new THREE.Quaternion(),
+    };
+
+    const clock = new THREE.Clock();
 
     const scene = new THREE.Scene();
 
@@ -470,44 +470,337 @@ class MapViewWebState extends State<MapViewWeb> {
       console.log('[MapViewWeb] Cámara reseteada');
     }
 
-    function loadAvatar(avatarSrc) {
-      if (!avatarViewer || !avatarSrc) return;
-      avatarViewer.src = avatarSrc;
-      avatarViewer.style.display = 'block';
-      console.log('[MapViewWeb] Avatar cargado: ' + avatarSrc);
+    // ─────────────────────────────────────────────────────────────────
+    // AVATAR 3D — sistema completo de carga, animación y pathfinding
+    // ─────────────────────────────────────────────────────────────────
+
+    function pickClip(clips, preferredNames) {
+      if (!clips || clips.length === 0) return null;
+      for (const name of preferredNames) {
+        const found = clips.find(function(c) {
+          return c.name && c.name.toLowerCase() === name.toLowerCase();
+        });
+        if (found) return found;
+      }
+      // Partial match como último recurso
+      for (const name of preferredNames) {
+        const found = clips.find(function(c) {
+          return c.name && c.name.toLowerCase().indexOf(name.toLowerCase()) !== -1;
+        });
+        if (found) return found;
+      }
+      return null;
     }
 
-    function setAvatarPosition(x, y, z) {
-      if (!avatarViewer) return;
+    function playAction(clip, { loop = THREE.LoopRepeat, fadeIn = 0.25 } = {}) {
+      if (!clip || !avatarState.mixer) return null;
+      const action = avatarState.mixer.clipAction(clip);
+      action.enabled = true;
+      action.setLoop(loop, Infinity);
+      action.clampWhenFinished = false;
 
-      avatarViewer.style.left = x + '%';
-      avatarViewer.style.bottom = y + '%';
-      avatarViewer.style.transform = 'translateX(-50%) scale(' + (z || 1) + ')';
+      if (avatarState.activeAction && avatarState.activeAction !== action) {
+        action.reset().fadeIn(fadeIn).play();
+        avatarState.activeAction.fadeOut(fadeIn);
+      } else {
+        action.reset().play();
+      }
+      avatarState.activeAction = action;
+      return action;
+    }
 
-      if (!avatarMoving) {
-        avatarMoving = true;
-        avatarViewer.animationName = 'Caminar';
-        avatarViewer.play();
+    function playWalk() {
+      if (avatarState.clips.walk) {
+        playAction(avatarState.clips.walk);
+      } else if (avatarState.clips.idle) {
+        playAction(avatarState.clips.idle);
+      }
+    }
+
+    function playIdle() {
+      if (avatarState.clips.idle) {
+        playAction(avatarState.clips.idle);
+      } else if (avatarState.clips.walk) {
+        // Sin idle dedicado: pausamos la única animación disponible
+        if (avatarState.activeAction) {
+          avatarState.activeAction.paused = true;
+        }
+      }
+    }
+
+    function loadAvatar(avatarSrc, opts) {
+      if (!avatarSrc) return;
+      const options = opts || {};
+
+      // Si ya hay un avatar con la misma URL, no recargamos.
+      if (avatarState.root && avatarState.sourceUrl === avatarSrc) {
+        console.log('[MapViewWeb][Avatar] Ya cargado: ' + avatarSrc);
+        return;
       }
 
-      if (avatarAnimFrame) clearTimeout(avatarAnimFrame);
-      avatarAnimFrame = setTimeout(function() {
-        avatarMoving = false;
-        try {
-          avatarViewer.animationName = 'Idle';
-          avatarViewer.play();
-        } catch (e) {
-          avatarViewer.pause();
-        }
-      }, 500);
+      // Limpiar avatar previo
+      if (avatarState.root) {
+        scene.remove(avatarState.root);
+        avatarState.root.traverse(function(o) {
+          if (o.geometry) o.geometry.dispose?.();
+          if (o.material) {
+            if (Array.isArray(o.material)) {
+              o.material.forEach(function(m) { m.dispose?.(); });
+            } else {
+              o.material.dispose?.();
+            }
+          }
+        });
+      }
 
-      console.log('[MapViewWeb] Avatar posición → x:' + x + ' y:' + y + ' z:' + z);
+      avatarState.root = null;
+      avatarState.mixer = null;
+      avatarState.clips = {};
+      avatarState.activeAction = null;
+      avatarState.ready = false;
+
+      const avatarLoader = new GLTFLoader();
+      avatarLoader.load(
+        avatarSrc,
+        function(gltf) {
+          const root = gltf.scene;
+          root.name = 'avatar-root';
+          root.visible = false;
+          root.scale.setScalar(options.scale || avatarState.scale || 1.0);
+
+          root.traverse(function(obj) {
+            if (!obj.isMesh) return;
+            obj.castShadow = false;
+            obj.receiveShadow = false;
+            obj.frustumCulled = false; // evita desaparecer durante movimientos rápidos
+            if (obj.material) {
+              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+              mats.forEach(function(m) {
+                m.transparent = m.transparent ?? false;
+                m.needsUpdate = true;
+              });
+            }
+          });
+
+          avatarState.root = root;
+          avatarState.sourceUrl = avatarSrc;
+          avatarState.yOffset = options.yOffset ?? 0.0;
+          avatarState.scale = options.scale || avatarState.scale;
+
+          avatarState.mixer = new THREE.AnimationMixer(root);
+          avatarState.mixer.timeScale = 1.0;
+
+          const clips = gltf.animations || [];
+          avatarState.clips = {
+            walk: pickClip(clips, ['Walk', 'Caminar', 'Walking', 'walk']),
+            idle: pickClip(clips, ['Idle', 'Quieto', 'Stand', 'idle']),
+          };
+
+          console.log(
+            '[MapViewWeb][Avatar] Clips detectados: ' +
+            clips.map(function(c) { return c.name; }).join(', ')
+          );
+
+          scene.add(root);
+          avatarState.ready = true;
+
+          // Reproducir Idle por defecto para no ver al avatar en T-pose
+          playIdle();
+
+          // Si llegó una ruta antes de que el modelo estuviera listo, aplicarla
+          if (avatarState.pendingRoute) {
+            const pending = avatarState.pendingRoute;
+            avatarState.pendingRoute = null;
+            startAvatarRoute(pending.waypoints, pending.opts);
+          }
+
+          console.log('[MapViewWeb][Avatar] Cargado: ' + avatarSrc);
+        },
+        undefined,
+        function(error) {
+          const message = (error && error.message) || String(error);
+          console.log('[MapViewWeb][Avatar][ERROR] ' + message);
+        },
+      );
+    }
+
+    function placeAvatarAt(world) {
+      if (!avatarState.ready || !avatarState.root) return;
+      avatarState.root.position.set(
+        world.x,
+        (world.y || 0) + avatarState.yOffset,
+        world.z,
+      );
+      avatarState.root.visible = true;
+    }
+
+    function faceAvatarTowards(target) {
+      if (!avatarState.ready || !avatarState.root) return;
+      const pos = avatarState.root.position;
+
+      // Mantener la cabeza nivelada: ignorar diferencia en Y
+      const dx = target.x - pos.x;
+      const dz = target.z - pos.z;
+      if ((dx * dx) + (dz * dz) < 1e-6) return;
+
+      const yaw = Math.atan2(dx, dz);
+      avatarState.targetQuat.setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+    }
+
+    function normalizeWaypoints(raw) {
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      for (const w of raw) {
+        if (!w) continue;
+        const x = Number(w.x);
+        const y = Number(w.y);
+        const z = Number(w.z);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+        out.push(new THREE.Vector3(x, y, z));
+      }
+      return out;
+    }
+
+    function computeSegmentDuration(from, to, speed) {
+      const distance = from.distanceTo(to);
+      if (distance < 1e-4) return 0.0001;
+      return distance / Math.max(speed, 0.01);
+    }
+
+    function startAvatarRoute(rawWaypoints, opts) {
+      const options = opts || {};
+      const waypoints = normalizeWaypoints(rawWaypoints);
+
+      if (waypoints.length === 0) {
+        console.log('[MapViewWeb][Avatar] Ruta vacía');
+        stopAvatarRoute();
+        return;
+      }
+
+      // Si el avatar no está listo, guardamos la ruta y reintentamos al cargar.
+      if (!avatarState.ready || !avatarState.root) {
+        avatarState.pendingRoute = { waypoints: rawWaypoints, opts: options };
+        console.log('[MapViewWeb][Avatar] Ruta en cola — esperando modelo');
+        return;
+      }
+
+      avatarState.speed = Number.isFinite(options.speed) ? options.speed : 1.2;
+      avatarState.route = waypoints;
+      avatarState.segmentIndex = 0;
+      avatarState.segmentProgress = 0.0;
+
+      // Colocar avatar en el primer waypoint
+      placeAvatarAt(waypoints[0]);
+
+      if (waypoints.length === 1) {
+        // Ruta de un solo punto: solo posicionamos y entramos en idle
+        avatarState.isWalking = false;
+        playIdle();
+        console.log('[MapViewWeb][Avatar] Ruta de 1 nodo — idle');
+        return;
+      }
+
+      avatarState.segmentDuration = computeSegmentDuration(
+        waypoints[0],
+        waypoints[1],
+        avatarState.speed,
+      );
+
+      // Rotación inicial instantánea para no verlo girar 180° al arrancar
+      faceAvatarTowards(waypoints[1]);
+      if (avatarState.root && avatarState.targetQuat) {
+        avatarState.root.quaternion.copy(avatarState.targetQuat);
+      }
+
+      avatarState.isWalking = true;
+      playWalk();
+      console.log(
+        '[MapViewWeb][Avatar] Ruta iniciada — ' + waypoints.length + ' waypoints'
+      );
+    }
+
+    function stopAvatarRoute() {
+      avatarState.route = [];
+      avatarState.segmentIndex = 0;
+      avatarState.segmentProgress = 0.0;
+      avatarState.isWalking = false;
+      if (avatarState.ready) {
+        playIdle();
+      }
+      console.log('[MapViewWeb][Avatar] Ruta detenida');
+    }
+
+    function setAvatarAtWorld(x, y, z) {
+      const px = Number(x);
+      const py = Number(y);
+      const pz = Number(z);
+      if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
+      placeAvatarAt({ x: px, y: py, z: pz });
     }
 
     function hideAvatar() {
-      if (!avatarViewer) return;
-      avatarViewer.style.display = 'none';
-      console.log('[MapViewWeb] Avatar oculto');
+      if (avatarState.root) {
+        avatarState.root.visible = false;
+      }
+      stopAvatarRoute();
+    }
+
+    function updateAvatarTick(dt) {
+      if (avatarState.mixer) {
+        avatarState.mixer.update(dt);
+      }
+      if (!avatarState.ready || !avatarState.root) return;
+
+      // Rotación suave hacia el próximo waypoint
+      if (avatarState.targetQuat) {
+        avatarState.root.quaternion.slerp(avatarState.targetQuat, 0.18);
+      }
+
+      if (!avatarState.isWalking) return;
+      const route = avatarState.route;
+      if (!route || route.length < 2) return;
+
+      const i = avatarState.segmentIndex;
+      if (i >= route.length - 1) return;
+
+      const from = route[i];
+      const to = route[i + 1];
+
+      avatarState.segmentProgress += dt / Math.max(avatarState.segmentDuration, 0.0001);
+      let t = avatarState.segmentProgress;
+
+      if (t >= 1.0) {
+        // Completamos este tramo: avanzar al siguiente
+        avatarState.segmentIndex += 1;
+        if (avatarState.segmentIndex >= route.length - 1) {
+          // Llegada: clavar posición final y cambiar a idle
+          placeAvatarAt(route[route.length - 1]);
+          avatarState.isWalking = false;
+          avatarState.segmentProgress = 0;
+          playIdle();
+          notifyFlutter('onAvatarArrived', {
+            waypoints: route.length,
+          });
+          console.log('[MapViewWeb][Avatar] Llegada a destino');
+          return;
+        }
+        avatarState.segmentProgress = 0;
+        const nextFrom = route[avatarState.segmentIndex];
+        const nextTo = route[avatarState.segmentIndex + 1];
+        avatarState.segmentDuration = computeSegmentDuration(
+          nextFrom,
+          nextTo,
+          avatarState.speed,
+        );
+        faceAvatarTowards(nextTo);
+        t = 0;
+      }
+
+      // Interpolar posición con lerp dentro del segmento
+      const pos = avatarState.root.position;
+      pos.x = from.x + (to.x - from.x) * t;
+      pos.y = (from.y + (to.y - from.y) * t) + avatarState.yOffset;
+      pos.z = from.z + (to.z - from.z) * t;
     }
 
     window.updateCamera = updateCamera;
@@ -515,7 +808,9 @@ class MapViewWebState extends State<MapViewWeb> {
     window.centerTopView = centerTopView;
     window.centerOnMapPoint = centerOnMapPoint;
     window.loadAvatar = loadAvatar;
-    window.setAvatarPosition = setAvatarPosition;
+    window.startAvatarRoute = startAvatarRoute;
+    window.stopAvatarRoute = stopAvatarRoute;
+    window.setAvatarAtWorld = setAvatarAtWorld;
     window.hideAvatar = hideAvatar;
 
     if (centerViewBtn) {
@@ -636,6 +931,8 @@ class MapViewWebState extends State<MapViewWeb> {
     function animate() {
       requestAnimationFrame(animate);
 
+      const dt = clock.getDelta();
+
       // Lógica de transición suave (Ease-Out Cubic)
       if (isCameraTransitioning) {
         camTransitionProgress += 0.04; // Ajusta este valor para hacer la animación más rápida o lenta
@@ -643,7 +940,7 @@ class MapViewWebState extends State<MapViewWeb> {
           camTransitionProgress = 1;
           isCameraTransitioning = false;
         }
-        
+
         const t = camTransitionProgress;
         const ease = 1 - Math.pow(1 - t, 3); // Ease-Out para frenar suavemente
 
@@ -652,6 +949,9 @@ class MapViewWebState extends State<MapViewWeb> {
       } else {
         enforceCameraLimits(); // Solo aplicar los límites rígidos si no estamos transicionando
       }
+
+      // Actualiza mixer, rotación y movimiento del avatar en el mismo tick
+      updateAvatarTick(dt);
 
       controls.update();
       renderer.render(scene, camera);
@@ -665,6 +965,41 @@ class MapViewWebState extends State<MapViewWeb> {
   // ══════════════════════════════════════════════════════════════════════════
   // Ciclo de vida del widget
   // ══════════════════════════════════════════════════════════════════════════
+
+  @override
+  void didUpdateWidget(covariant MapViewWeb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Si cambió el .glb del mapa (p.ej. el usuario cambió de piso), recargamos
+    // el WebView. Así mantenemos la misma instancia —y por tanto el
+    // GlobalKey<MapViewWebState>— sin necesidad de ValueKey externo.
+    if (oldWidget.modelUrl != widget.modelUrl && _webViewController != null) {
+      debugPrint(
+        '[MapViewWeb] modelUrl cambió → recargando HTML con '
+        '${widget.modelUrl}',
+      );
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+          _hasError = false;
+        });
+      }
+      // Reinyecta el HTML (el getter ya resuelve el nuevo widget.modelUrl).
+      _webViewController!.loadData(
+        data: _initialHtml,
+        mimeType: 'text/html',
+        encoding: 'utf-8',
+        baseUrl: WebUri('https://localhost'),
+      );
+    }
+
+    // Si cambió el avatar (normalmente no pasa), pedimos recarga al JS.
+    if (oldWidget.avatarUrl != widget.avatarUrl &&
+        widget.avatarUrl != null &&
+        widget.avatarUrl!.isNotEmpty) {
+      loadAvatar(widget.avatarUrl!);
+    }
+  }
 
   @override
   void dispose() {
@@ -730,25 +1065,62 @@ class MapViewWebState extends State<MapViewWeb> {
     debugPrint('[MapViewWeb][Flutter→Web] centerTopView()');
   }
 
-  /// Carga un modelo de avatar en el visor secundario.
-  Future<void> loadAvatar(String avatarSrc) async {
+  /// Centra la cámara sobre un punto de mundo 3D (coordenadas three.js).
+  Future<void> centerOnMapPoint(double x, double y, double z) async {
     if (_webViewController == null) return;
     await _webViewController!.evaluateJavascript(
-      source: "loadAvatar('$avatarSrc');",
+      source: "centerOnMapPoint($x, $y, $z);",
+    );
+    debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint($x, $y, $z)');
+  }
+
+  /// Carga un modelo de avatar .glb y lo añade DENTRO de la escena three.js.
+  /// Debe ejecutarse una sola vez; cambia entre mapas sin recargar.
+  /// [opts] admite: `scale` (double), `yOffset` (double).
+  Future<void> loadAvatar(String avatarSrc, {Map<String, dynamic>? opts}) async {
+    if (_webViewController == null) return;
+    final optsJson = jsonEncode(opts ?? const <String, dynamic>{});
+    await _webViewController!.evaluateJavascript(
+      source: "loadAvatar(${jsonEncode(avatarSrc)}, $optsJson);",
+    );
+    debugPrint('[MapViewWeb][Flutter→Web] loadAvatar($avatarSrc)');
+  }
+
+  /// Inicia la animación del avatar sobre la ruta indicada.
+  ///
+  /// [waypoints] debe ser una lista de mapas `{x, y, z}` en coordenadas del
+  /// mundo three.js (ver `NodeWorldMapping`).
+  /// [speed] está en unidades/segundo del mundo.
+  Future<void> startAvatarRoute(
+    List<Map<String, dynamic>> waypoints, {
+    double speed = 1.2,
+  }) async {
+    if (_webViewController == null) return;
+    final payload = jsonEncode(waypoints);
+    final opts = jsonEncode({'speed': speed});
+    await _webViewController!.evaluateJavascript(
+      source: "startAvatarRoute($payload, $opts);",
+    );
+    debugPrint(
+      '[MapViewWeb][Flutter→Web] startAvatarRoute(${waypoints.length} wp, $speed u/s)',
     );
   }
 
-  /// Posiciona el avatar en la escena 3D.
-  /// [x], [y] → Posición en porcentaje (0-100)
-  /// [z] → Escala del avatar (1.0 = tamaño normal)
-  Future<void> setAvatarPosition(double x, double y, double z) async {
+  /// Detiene el recorrido en curso y deja al avatar en animación idle.
+  Future<void> stopAvatarRoute() async {
+    if (_webViewController == null) return;
+    await _webViewController!.evaluateJavascript(source: "stopAvatarRoute();");
+  }
+
+  /// Coloca el avatar instantáneamente en una coordenada de mundo.
+  Future<void> setAvatarAtWorld(double x, double y, double z) async {
     if (_webViewController == null) return;
     await _webViewController!.evaluateJavascript(
-      source: "setAvatarPosition($x, $y, $z);",
+      source: "setAvatarAtWorld($x, $y, $z);",
     );
   }
 
-  /// Oculta el avatar de la escena.
+  /// Oculta el avatar de la escena (p.ej. al cambiar de piso sin destino).
   Future<void> hideAvatar() async {
     if (_webViewController == null) return;
     await _webViewController!.evaluateJavascript(source: "hideAvatar();");
@@ -835,6 +1207,15 @@ class MapViewWebState extends State<MapViewWeb> {
                     });
                     widget.onError?.call();
                   }
+                  return null;
+                },
+              );
+
+              controller.addJavaScriptHandler(
+                handlerName: 'onAvatarArrived',
+                callback: (args) {
+                  debugPrint('[MapViewWeb][Web→Flutter] Avatar llegó: $args');
+                  widget.onAvatarArrived?.call();
                   return null;
                 },
               );

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,12 +5,24 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import '../services/supabase_service.dart';
 import '../services/analytics_service.dart';
+import '../services/avatar_navigation_service.dart';
+import '../services/kiosk_bus.dart';
 import '../models/store.dart';
+import '../models/map_node.dart';
 import '../models/map_route.dart';
 import '../models/map_polygon.dart';
+import '../utils/node_world_mapping.dart';
 import '../widgets/screen_ad_banners.dart';
 import '../widgets/map_view_web.dart';
 import '../theme/app_theme.dart';
+
+// URL del avatar 3D (Supabase Storage).
+const String _kAvatarModelUrl =
+    'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Persona_caminar.glb';
+
+/// Parámetros que convierten coordenadas del grafo al mundo three.js. Si los
+/// .glb del mapa no comparten escala 1:1 con los nodos, ajustar aquí.
+const NodeWorldMapping _kNodeWorldMapping = NodeWorldMapping.identity;
 
 // ============================================================================
 // Constantes de pisos
@@ -63,9 +74,15 @@ class _MapScreenState extends State<MapScreen> {
 
   // Datos del kiosco actual
   String? _currentKioskId;
+  String? _currentKioskNodeId;
   int? _kioskFloorLevel;
   List<MapRoute> _allRoutes = [];
   List<MapPolygon> _allPolygons = [];
+  List<MapNode> _allNodes = const [];
+  AvatarNavigationService? _navService;
+
+  // Tienda seleccionada → para feedback UI de ruta activa
+  Store? _selectedStoreForRoute;
 
   @override
   void initState() {
@@ -73,14 +90,24 @@ class _MapScreenState extends State<MapScreen> {
     _loadData();
     _setupRealtime();
     _categoryScrollController.addListener(_updateCategoryScrollState);
+    // Recarga cuando el técnico cambia el kiosco desde el header.
+    KioskBus.selectionTick.addListener(_onKioskChanged);
   }
 
   @override
   void dispose() {
+    KioskBus.selectionTick.removeListener(_onKioskChanged);
     _realtimeChannel?.unsubscribe();
     _searchController.dispose();
     _categoryScrollController.dispose();
     super.dispose();
+  }
+
+  void _onKioskChanged() {
+    debugPrint('[MapScreen] KioskBus → recargando datos por cambio de kiosco');
+    _selectedStoreForRoute = null;
+    _mapViewKey.currentState?.stopAvatarRoute();
+    _loadData(isSilent: true);
   }
 
   void _updateCategoryScrollState() {
@@ -144,29 +171,63 @@ class _MapScreenState extends State<MapScreen> {
 
       final routes = await _supabaseService.getMapRoutes();
       final nodes = await _supabaseService.getMapNodes();
+      final edges = await _supabaseService.getMapEdges();
       final polygons = await _supabaseService.getMapPolygons();
 
       final prefs = await SharedPreferences.getInstance();
       final kioskId = prefs.getString('kiosk_id');
 
       int? kioskFloor;
-      if (kioskId != null) {
+      String? kioskNodeId;
+      if (kioskId == null) {
+        debugPrint(
+          '[MapScreen] ⚠ No hay kiosk_id en SharedPreferences — '
+          'el técnico debe seleccionar un kiosco desde el header.',
+        );
+      } else {
         final kioskData = await _supabaseService.getKioskById(kioskId);
-        if (kioskData != null && kioskData['node_id'] != null) {
-          final kioskNodeId = kioskData['node_id'] as String;
-          try {
-            final kioskNode = nodes.firstWhere((n) => n.id == kioskNodeId);
-            kioskFloor = kioskNode.floorLevel;
-          } catch (_) {}
+        if (kioskData == null) {
+          debugPrint(
+            '[MapScreen] ⚠ Kiosco "$kioskId" no existe en Supabase.',
+          );
+        } else if (kioskData['node_id'] == null ||
+            (kioskData['node_id'] as String).isEmpty) {
+          debugPrint(
+            '[MapScreen] ⚠ El kiosco "$kioskId" existe pero tiene node_id NULL '
+            'en la base de datos. Asígnale un nodo del grafo.',
+          );
+        } else {
+          kioskNodeId = kioskData['node_id'] as String;
+          final nodeMatch = nodes.where((n) => n.id == kioskNodeId).toList();
+          if (nodeMatch.isEmpty) {
+            debugPrint(
+              '[MapScreen] ⚠ node_id "$kioskNodeId" del kiosco no está en '
+              'map_nodes. ¿Límite de filas en la consulta?',
+            );
+          } else {
+            kioskFloor = nodeMatch.first.floorLevel;
+          }
         }
       }
+
+      // Construimos el servicio ANTES del setState para que, aunque el
+      // callback onMapLoaded del WebView se dispare en el mismo frame, ya
+      // encuentre el grafo listo.
+      final navService = AvatarNavigationService(
+        nodes: nodes,
+        edges: edges,
+        mapping: _kNodeWorldMapping,
+      );
 
       if (mounted) {
         setState(() {
           _allRoutes = routes;
           _allPolygons = polygons;
+          _allNodes = nodes;
           _currentKioskId = kioskId;
+          _currentKioskNodeId = kioskNodeId;
           _kioskFloorLevel = kioskFloor;
+          _navService = navService;
         });
       }
 
@@ -422,7 +483,113 @@ class _MapScreenState extends State<MapScreen> {
       itemName: store.name,
       itemId: store.id,
     );
-    // TODO: Actualizar Columna B con la ubicación de esta tienda
+
+    // Si la tienda está en otro piso, cambiamos la vista primero; la ruta se
+    // dispara cuando el nuevo mapa esté cargado (ver `onMapLoaded`).
+    final storeFloorNum = _getStoreFloorNum(store);
+    final targetFloorName = _floorNumToName[storeFloorNum];
+
+    setState(() {
+      _selectedStoreForRoute = store;
+    });
+
+    if (targetFloorName != null && targetFloorName != _selectedFloor) {
+      setState(() => _selectedFloor = targetFloorName);
+      // Al cambiar de piso el MapViewWeb se reconstruye (ValueKey), por lo que
+      // `onMapLoaded` disparará `_runAvatarRouteTo` para la tienda en el nuevo
+      // piso. Nada más que hacer aquí.
+      return;
+    }
+
+    _runAvatarRouteTo(store);
+  }
+
+  /// Calcula y lanza la animación del avatar hacia la tienda.
+  void _runAvatarRouteTo(Store store) {
+    final nav = _navService;
+    if (nav == null || !nav.isReady) {
+      debugPrint(
+        '[MapScreen] Servicio de navegación no listo aún '
+        '(nav=${nav != null}, ready=${nav?.isReady ?? false}). '
+        'Reintentaré cuando termine de cargar.',
+      );
+      return;
+    }
+    if (_currentKioskNodeId == null || _currentKioskNodeId!.isEmpty) {
+      debugPrint(
+        '[MapScreen] No se puede navegar: kiosk_id=$_currentKioskId '
+        'sin node_id asignado en la tabla kiosks.',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El kiosco actual no tiene un nodo de mapa asignado. '
+              'Configúralo en Supabase.',
+            ),
+            backgroundColor: AppColors.error,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    final currentFloorNum = _floorNameToNum[_selectedFloor];
+    debugPrint(
+      '[MapScreen] Calculando ruta: kiosko=$_currentKioskNodeId → '
+      'tienda="${store.name}" (node=${store.nodeId}) '
+      'piso=$currentFloorNum',
+    );
+    final route = nav.routeFromKioskToStore(
+      kioskNodeId: _currentKioskNodeId,
+      store: store,
+      currentFloorLevel: currentFloorNum,
+    );
+
+    if (route.isEmpty || route.waypoints.isEmpty) {
+      debugPrint(
+        '[MapScreen] Sin ruta disponible: ${route.errorMessage ?? "desconocido"}',
+      );
+      if (mounted && route.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(route.errorMessage!),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      // Al menos posicionamos el avatar en el kiosko si tenemos su nodo.
+      _placeAvatarAtKiosk();
+      return;
+    }
+
+    // Centrar cámara sobre el destino para que el usuario vea la animación.
+    final last = route.waypoints.last;
+    final mapView = _mapViewKey.currentState;
+    mapView?.centerOnMapPoint(
+      (last['x'] as num).toDouble(),
+      (last['y'] as num).toDouble(),
+      (last['z'] as num).toDouble(),
+    );
+
+    mapView?.startAvatarRoute(route.waypoints);
+  }
+
+  void _placeAvatarAtKiosk() {
+    final kioskNodeId = _currentKioskNodeId;
+    if (kioskNodeId == null) return;
+    MapNode? kioskNode;
+    for (final n in _allNodes) {
+      if (n.id == kioskNodeId) {
+        kioskNode = n;
+        break;
+      }
+    }
+    if (kioskNode == null) return;
+    final world = _kNodeWorldMapping.toWorld(kioskNode);
+    _mapViewKey.currentState?.setAvatarAtWorld(world.x, world.y, world.z);
   }
 
   @override
@@ -645,16 +812,9 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
 
-            // Zona secreta: long-press esquina superior derecha
-            Positioned(
-              top: 0,
-              right: 0,
-              child: _KioskLongPressZone(
-                onKioskSelected: () {
-                  _loadData(isSilent: true);
-                },
-              ),
-            ),
+            // Nota: el selector de kiosco vive ahora en AppHeader
+            // (long-press sobre el logo). La suscripción a KioskBus en
+            // _onKioskChanged dispara la recarga automática.
           ],
         ),
       ),
@@ -791,14 +951,27 @@ class _MapScreenState extends State<MapScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: MapViewWeb(
-                  // ValueKey fuerza reconstrucción al cambiar de piso
-                  key: ValueKey(_selectedFloor),
+                  // GlobalKey<MapViewWebState> para exponer la API imperativa.
+                  // El cambio de piso se maneja vía didUpdateWidget (recarga el
+                  // HTML inline con la nueva URL del .glb).
+                  key: _mapViewKey,
                   modelUrl: modelUrl,
+                  avatarUrl: _kAvatarModelUrl,
                   onMapLoaded: () {
                     debugPrint('[MapScreen] Mapa del piso $_selectedFloor cargado');
+                    // Si había una tienda seleccionada con ruta pendiente, la
+                    // disparamos aquí (por ejemplo tras cambiar de piso).
+                    if (_selectedStoreForRoute != null) {
+                      _runAvatarRouteTo(_selectedStoreForRoute!);
+                    } else {
+                      _placeAvatarAtKiosk();
+                    }
                   },
                   onError: () {
                     debugPrint('[MapScreen] Error cargando mapa de $_selectedFloor');
+                  },
+                  onAvatarArrived: () {
+                    debugPrint('[MapScreen] Avatar llegó a destino');
                   },
                 ),
               ),
@@ -873,354 +1046,6 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// ============================================================================
-// ZONA INVISIBLE para long-press de 5 segundos (selector de kiosco)
-// ============================================================================
-class _KioskLongPressZone extends StatefulWidget {
-  final VoidCallback onKioskSelected;
-  const _KioskLongPressZone({required this.onKioskSelected});
-
-  @override
-  State<_KioskLongPressZone> createState() => _KioskLongPressZoneState();
-}
-
-class _KioskLongPressZoneState extends State<_KioskLongPressZone> {
-  Timer? _longPressTimer;
-  bool _isPressed = false;
-  double _progress = 0.0;
-  Timer? _progressTimer;
-
-  void _startLongPress() {
-    setState(() {
-      _isPressed = true;
-      _progress = 0.0;
-    });
-
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (mounted) {
-        setState(() {
-          _progress = (_progress + 0.01).clamp(0.0, 1.0);
-        });
-      }
-    });
-
-    _longPressTimer = Timer(const Duration(seconds: 5), () {
-      _cancelTimers();
-      if (mounted) {
-        setState(() {
-          _isPressed = false;
-          _progress = 0.0;
-        });
-        _showKioskSelectorModal();
-      }
-    });
-  }
-
-  void _cancelLongPress() {
-    _cancelTimers();
-    if (mounted) {
-      setState(() {
-        _isPressed = false;
-        _progress = 0.0;
-      });
-    }
-  }
-
-  void _cancelTimers() {
-    _longPressTimer?.cancel();
-    _progressTimer?.cancel();
-  }
-
-  @override
-  void dispose() {
-    _cancelTimers();
-    super.dispose();
-  }
-
-  void _showKioskSelectorModal() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => _KioskSelectorModal(
-        onSelected: () {
-          widget.onKioskSelected();
-        },
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onLongPressStart: (_) => _startLongPress(),
-      onLongPressEnd: (_) => _cancelLongPress(),
-      onLongPressCancel: () => _cancelLongPress(),
-      child: Container(
-        width: 80,
-        height: 80,
-        color: Colors.transparent,
-        child: _isPressed
-            ? Center(
-                child: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    value: _progress,
-                    strokeWidth: 3,
-                    color: Colors.white24,
-                    backgroundColor: Colors.transparent,
-                  ),
-                ),
-              )
-            : null,
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// MODAL para seleccionar cual kiosco es este dispositivo
-// ============================================================================
-class _KioskSelectorModal extends StatefulWidget {
-  final VoidCallback onSelected;
-  const _KioskSelectorModal({required this.onSelected});
-
-  @override
-  State<_KioskSelectorModal> createState() => _KioskSelectorModalState();
-}
-
-class _KioskSelectorModalState extends State<_KioskSelectorModal> {
-  bool _isLoading = true;
-  List<Map<String, dynamic>> _kiosks = [];
-  String? _selectedKioskId;
-  String? _currentKioskId;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadKiosks();
-  }
-
-  Future<void> _loadKiosks() async {
-    try {
-      final client = Supabase.instance.client;
-      final prefs = await SharedPreferences.getInstance();
-      _currentKioskId = prefs.getString('kiosk_id');
-
-      final response = await client.from('kiosks').select();
-
-      if (mounted) {
-        setState(() {
-          _kiosks = List<Map<String, dynamic>>.from(response);
-          _selectedKioskId = _currentKioskId;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error cargando kioscos: $e');
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _selectKiosk() async {
-    if (_selectedKioskId == null) return;
-    setState(() => _isLoading = true);
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('kiosk_id', _selectedKioskId!);
-
-      if (mounted) {
-        Navigator.pop(context);
-        widget.onSelected();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Kiosco actualizado correctamente'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error seleccionando kiosco: $e');
-      setState(() => _isLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-      child: Container(
-        width: 450,
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.tv_rounded,
-                  color: Color(0xFFFF007A),
-                  size: 28,
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'SELECCIONAR KIOSCO',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white54),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Selecciona a cual kiosco corresponde este dispositivo para determinar las rutas y el piso actual.',
-              style: TextStyle(
-                color: Colors.white54,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            if (_isLoading)
-              const SizedBox(
-                height: 100,
-                child: Center(
-                  child: CircularProgressIndicator(color: Color(0xFFFF007A)),
-                ),
-              )
-            else if (_kiosks.isEmpty)
-              const Text(
-                'No hay kioscos registrados en el sistema.',
-                style: TextStyle(color: Colors.redAccent),
-              )
-            else
-              ...(_kiosks.map((kiosk) {
-                final isSelected = _selectedKioskId == kiosk['id'];
-                final isCurrent = _currentKioskId == kiosk['id'];
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedKioskId = kiosk['id']),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFFFF007A).withAlpha(38)
-                          : const Color(0xFF111111),
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFFFF007A)
-                            : Colors.white10,
-                        width: isSelected ? 2 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isSelected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          color: isSelected
-                              ? const Color(0xFFFF007A)
-                              : Colors.white30,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                kiosk['name'] ?? 'Sin nombre',
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white70,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              if (kiosk['location'] != null)
-                                Text(
-                                  kiosk['location'],
-                                  style: const TextStyle(
-                                    color: Colors.white38,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (isCurrent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withAlpha(51),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'ACTUAL',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList()),
-
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF007A),
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                ),
-                onPressed: _isLoading || _selectedKioskId == null
-                    ? null
-                    : _selectKiosk,
-                child: const Text(
-                  'CONFIRMAR KIOSCO',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

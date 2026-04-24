@@ -3,6 +3,8 @@ class MapNode {
   final int floorLevel;
   final double x;
   final double y;
+  final double zHeight;
+  final bool is3d;
   final String nodeType;
 
   MapNode({
@@ -11,6 +13,8 @@ class MapNode {
     required this.x,
     required this.y,
     required this.nodeType,
+    this.zHeight = 0.0,
+    this.is3d = false,
   });
 
   factory MapNode.fromJson(Map<String, dynamic> json) {
@@ -19,6 +23,10 @@ class MapNode {
       floorLevel: json['floor_level'] as int,
       x: (json['x'] as num).toDouble(),
       y: (json['y'] as num).toDouble(),
+      zHeight: json['z_height'] == null
+          ? 0.0
+          : (json['z_height'] as num).toDouble(),
+      is3d: json['is_3d'] as bool? ?? false,
       nodeType: json['node_type'] as String,
     );
   }

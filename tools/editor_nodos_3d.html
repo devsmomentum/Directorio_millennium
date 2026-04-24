@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor de Nodos 3D | Milemium</title>
+    <style>
+        /* ============================================
+           DESIGN TOKENS
+        ============================================ */
+        :root {
+            --bg: #0c0e12;
+            --surface-0: #111318;
+            --surface-1: rgba(17, 20, 28, 0.94);
+            --surface-2: rgba(28, 32, 44, 0.80);
+            --surface-3: rgba(38, 43, 58, 0.60);
+
+            --border:       rgba(255,255,255,0.07);
+            --border-light: rgba(255,255,255,0.12);
+
+            --accent:     #22d3ee;
+            --accent-dim: rgba(34, 211, 238, 0.12);
+
+            --green:   #10b981;
+            --amber:   #f59e0b;
+            --red:     #ef4444;
+            --purple:  #8b5cf6;
+            --blue:    #3b82f6;
+            --rose:    #f87171;
+            --lime:    #86efac;
+            --sky:     #93c5fd;
+
+            --text-primary:   #dde1ed;
+            --text-secondary: #6e7a99;
+            --text-muted:     #3f4a65;
+
+            --header-h: 50px;
+            --panel-w:  296px;
+            --radius:   5px;
+            --radius-lg: 9px;
+
+            --shadow: 0 8px 32px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        /* ============================================
+           RESET & BASE
+        ============================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            overflow: hidden;
+            background: var(--bg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ============================================
+           CANVAS
+        ============================================ */
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
+
+        /* ============================================
+           HEADER
+        ============================================ */
+        header {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: var(--header-h);
+            background: var(--surface-1);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(20px) saturate(1.8);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            gap: 3px;
+        }
+
+        .brand {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: -0.3px;
+            margin-right: 10px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .hdiv {
+            width: 1px;
+            height: 20px;
+            background: var(--border);
+            margin: 0 8px;
+            flex-shrink: 0;
+        }
+
+        .hgroup { display: flex; align-items: center; gap: 3px; }
+        .hgroup-right { margin-left: auto; }
+
+        /* ============================================
+           BUTTONS
+        ============================================ */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border: 1px solid transparent;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 11.5px;
+            font-weight: 500;
+            white-space: nowrap;
+            line-height: 1;
+            transition: background 0.12s, border-color 0.12s, color 0.12s;
+            background: none;
+            color: var(--text-secondary);
+            font-family: inherit;
+        }
+        .btn:hover {
+            background: rgba(255,255,255,0.06);
+            color: var(--text-primary);
+        }
+        .btn-ghost {
+            border-color: var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--border-light); }
+
+        .btn-primary {
+            background: var(--blue);
+            color: #fff;
+            border-color: transparent;
+        }
+        .btn-primary:hover { background: #2563eb; }
+
+        .btn-success {
+            background: var(--green);
+            color: #fff;
+            border-color: transparent;
+        }
+        .btn-success:hover { background: #059669; }
+
+        .btn-danger {
+            color: var(--red);
+            border-color: rgba(239,68,68,0.25);
+        }
+        .btn-danger:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.5); }
+
+        .btn-active {
+            background: rgba(16,185,129,0.13);
+            color: var(--green);
+            border-color: rgba(16,185,129,0.35);
+        }
+        .btn-active:hover { background: rgba(16,185,129,0.2); }
+
+        .btn-focus-mode {
+            background: rgba(245,158,11,0.13);
+            color: var(--amber);
+            border-color: rgba(245,158,11,0.35);
+        }
+        .btn-focus-mode:hover { background: rgba(245,158,11,0.2); }
+
+        .btn-full { width: 100%; justify-content: center; }
+        .btn-icon { padding: 5px 6px; }
+
+        .hbtn { font-size: 11.5px; padding: 5px 9px; }
+
+        /* ============================================
+           HEADER SELECT
+        ============================================ */
+        .hselect {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-size: 11.5px;
+            padding: 5px 8px;
+            border-radius: var(--radius);
+            outline: none;
+            cursor: pointer;
+            font-family: inherit;
+            transition: border-color 0.12s;
+        }
+        .hselect:hover { border-color: var(--border-light); }
+        .hselect:focus { border-color: var(--accent); }
+        .hlabel { font-size: 11px; color: var(--text-secondary); margin-right: 2px; }
+
+        /* ============================================
+           SIDE PANELS
+        ============================================ */
+        .panel {
+            position: absolute;
+            top: calc(var(--header-h) + 10px);
+            width: var(--panel-w);
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            backdrop-filter: blur(24px) saturate(1.8);
+            box-shadow: var(--shadow);
+            z-index: 50;
+            max-height: calc(100vh - var(--header-h) - 20px);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-left  { left: 10px; }
+        .panel-right { right: 10px; display: none; }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px 9px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .panel-icon {
+            width: 22px; height: 22px;
+            border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+        .panel-icon-cyan  { background: var(--accent-dim); color: var(--accent); }
+        .panel-icon-green { background: rgba(16,185,129,0.12); color: var(--green); }
+        .panel-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); letter-spacing: 0.1px; }
+        .panel-badge { margin-left: auto; font-size: 10px; color: var(--text-muted); }
+
+        .panel-body {
+            padding: 11px 12px;
+            overflow-y: auto;
+            flex: 1;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+        .panel-body::-webkit-scrollbar { width: 4px; }
+        .panel-body::-webkit-scrollbar-track { background: transparent; }
+        .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* ============================================
+           FORM SECTIONS
+        ============================================ */
+        .sec { margin-bottom: 13px; }
+        .sec:last-child { margin-bottom: 0; }
+
+        .sec-label {
+            font-size: 9.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            color: var(--text-muted);
+            margin-bottom: 7px;
+        }
+
+        .pdiv {
+            height: 1px;
+            background: var(--border);
+            margin: 11px 0;
+        }
+
+        /* ============================================
+           INPUTS & SELECTS (inside panels)
+        ============================================ */
+        .finput, .fselect, .ftextarea {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: var(--radius);
+            padding: 6px 8px;
+            font-size: 11.5px;
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.12s, background 0.12s;
+        }
+        .finput:focus, .fselect:focus { border-color: var(--accent); background: rgba(34,211,238,0.04); }
+        .finput[readonly] { color: var(--text-muted); cursor: default; }
+        .finput-full, .fselect-full { width: 100%; display: block; }
+        .finput-full { margin-bottom: 7px; }
+        .fselect-full { margin-bottom: 7px; }
+
+        /* ============================================
+           SLIDER ROWS
+        ============================================ */
+        .srow {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 5px;
+        }
+        .srow-label {
+            font-size: 10.5px;
+            color: var(--text-secondary);
+            width: 52px;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+        .srow-label.x { color: var(--rose); }
+        .srow-label.y { color: var(--lime); }
+        .srow-label.z { color: var(--sky); }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            flex: 1;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--surface-3);
+            outline: none;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 0 2px rgba(34,211,238,0.18);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+        input[type="range"]::-moz-range-thumb {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none;
+            cursor: pointer;
+        }
+        .snum {
+            width: 60px;
+            flex-shrink: 0;
+            text-align: right;
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+            font-family: 'Menlo', 'Consolas', monospace;
+        }
+
+        /* ============================================
+           COORDINATE GRID (node panel)
+        ============================================ */
+        .coord-grid {
+            display: grid;
+            grid-template-columns: 18px 1fr;
+            gap: 4px 7px;
+            align-items: center;
+        }
+        .caxis {
+            font-size: 9px;
+            font-weight: 700;
+            text-align: center;
+            padding: 3px 0;
+            border-radius: 3px;
+            line-height: 1;
+        }
+        .caxis.x { color: var(--rose);   background: rgba(248,113,113,0.1); }
+        .caxis.y { color: var(--lime);   background: rgba(134,239,172,0.1); }
+        .caxis.z { color: var(--sky);    background: rgba(147,197,253,0.1); }
+        .cinput {
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 11px;
+            width: 100%;
+        }
+
+        /* ============================================
+           NODE ID CHIP
+        ============================================ */
+        .node-id-chip {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 5px 8px;
+            font-size: 9.5px;
+            font-family: 'Menlo', 'Consolas', monospace;
+            color: var(--text-muted);
+            word-break: break-all;
+            line-height: 1.55;
+            margin-bottom: 10px;
+        }
+
+        /* ============================================
+           STATUS BAR
+        ============================================ */
+        #status-bar {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 4px 14px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            backdrop-filter: blur(16px);
+            z-index: 50;
+            pointer-events: none;
+            display: flex;
+            gap: 14px;
+            white-space: nowrap;
+        }
+        #status-bar span { display: flex; align-items: center; gap: 4px; }
+        .dot-green { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+        .dot-amber { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex-shrink: 0; }
+
+        /* ============================================
+           SQL MODAL
+        ============================================ */
+        #sql-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(6px);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        #sql-modal {
+            background: var(--surface-0);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: 18px;
+            width: 62%;
+            max-width: 820px;
+            height: 62vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow);
+        }
+        #sql-modal h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+        .ftextarea {
+            flex: 1;
+            width: 100%;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 11px;
+            resize: none;
+            line-height: 1.65;
+        }
+        .modal-foot {
+            display: flex;
+            justify-content: flex-end;
+            gap: 7px;
+            margin-top: 11px;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- ════════════════════════════════════════
+     HEADER
+════════════════════════════════════════ -->
+<header>
+    <span class="brand">⬡ Node Editor</span>
+
+    <div class="hdiv"></div>
+
+    <div class="hgroup">
+        <span class="hlabel">Piso</span>
+        <select id="select-floor-model" class="hselect">
+            <option value="rg">RG — Planta Baja</option>
+            <option value="pl">PL</option>
+            <option value="c1">C1</option>
+            <option value="c2">C2</option>
+            <option value="c3">C3</option>
+            <option value="c4">C4</option>
+        </select>
+    </div>
+
+    <div class="hdiv"></div>
+
+    <div class="hgroup">
+        <button id="btn-load-db" class="btn btn-ghost hbtn">📥 Cargar BD</button>
+        <button id="btn-clear"   class="btn btn-danger hbtn">✕ Limpiar</button>
+    </div>
+
+    <div class="hdiv"></div>
+
+    <div class="hgroup">
+        <button id="btn-center-nodes" class="btn btn-ghost hbtn" title="Centrar cámara en los nodos">⊙ Nodos</button>
+        <button id="btn-center-model" class="btn btn-ghost hbtn" title="Centrar cámara en el modelo GLB">⊡ Mapa</button>
+        <button id="btn-mode-center"  class="btn btn-ghost hbtn" title="Clic en el mapa para mover el centro de rotación">🎯 Foco: OFF</button>
+        <button id="btn-mode-connect" class="btn btn-ghost hbtn">🔗 Conectar: OFF</button>
+    </div>
+
+    <div class="hgroup hgroup-right">
+        <button id="btn-generate-sql" class="btn btn-success hbtn">💾 Generar SQL</button>
+    </div>
+</header>
+
+<!-- ════════════════════════════════════════
+     PANEL IZQUIERDO — CALIBRACIÓN GLB
+════════════════════════════════════════ -->
+<aside class="panel panel-left" id="calibration-panel">
+    <div class="panel-head">
+        <div class="panel-icon panel-icon-cyan">⚖</div>
+        <span class="panel-title">Calibración del Modelo</span>
+    </div>
+    <div class="panel-body">
+
+        <div class="sec">
+            <div class="sec-label">Escala</div>
+            <div class="srow">
+                <span class="srow-label">Factor</span>
+                <input type="range" id="calib-scale" min="0.01" max="10" step="0.01" value="1">
+                <input type="number" id="calib-scale-num" class="finput snum" value="1" min="0.001" step="0.01">
+            </div>
+        </div>
+
+        <div class="pdiv"></div>
+
+        <div class="sec">
+            <div class="sec-label">Desplazamiento (Offset)</div>
+            <div class="srow">
+                <span class="srow-label x">Offset X</span>
+                <input type="range" id="calib-ox" min="-2000" max="2000" step="1" value="0">
+                <input type="number" id="calib-ox-num" class="finput snum" value="0" step="1">
+            </div>
+            <div class="srow">
+                <span class="srow-label y">Offset Y</span>
+                <input type="range" id="calib-oy" min="-500" max="500" step="0.5" value="0">
+                <input type="number" id="calib-oy-num" class="finput snum" value="0" step="0.5">
+            </div>
+            <div class="srow">
+                <span class="srow-label z">Offset Z</span>
+                <input type="range" id="calib-oz" min="-2000" max="2000" step="1" value="0">
+                <input type="number" id="calib-oz-num" class="finput snum" value="0" step="1">
+            </div>
+        </div>
+
+        <div class="pdiv"></div>
+
+        <div class="sec">
+            <div class="sec-label">Rotación</div>
+            <div class="srow">
+                <span class="srow-label">Rot Y (°)</span>
+                <input type="range" id="calib-rot" min="-180" max="180" step="0.5" value="0">
+                <input type="number" id="calib-rot-num" class="finput snum" value="0" step="0.5">
+            </div>
+        </div>
+
+        <div class="pdiv"></div>
+
+        <button id="btn-calib-reset"  class="btn btn-ghost btn-full" style="margin-bottom:5px;">↺ Resetear Calibración</button>
+        <button id="btn-center-model2" class="btn btn-ghost btn-full">⊡ Enfocar Modelo</button>
+
+    </div>
+</aside>
+
+<!-- ════════════════════════════════════════
+     PANEL DERECHO — PROPIEDADES DEL NODO
+════════════════════════════════════════ -->
+<aside class="panel panel-right" id="ui-panel">
+    <div class="panel-head">
+        <div class="panel-icon panel-icon-green">◉</div>
+        <span class="panel-title">Propiedades del Nodo</span>
+        <button id="btn-close-panel" class="btn btn-icon" style="margin-left:auto;" title="Cerrar">✕</button>
+    </div>
+    <div class="panel-body">
+
+        <div class="sec">
+            <div class="sec-label">Identificador</div>
+            <div class="node-id-chip" id="display-node-id">—</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-label">Tipo de Nodo</div>
+            <select id="select-node-type" class="fselect fselect-full">
+                <option value="hallway">Pasillo / Waypoint</option>
+                <option value="store">Tienda</option>
+                <option value="kiosk">Quiosco</option>
+                <option value="stairs">Escalera</option>
+                <option value="elevator">Ascensor</option>
+            </select>
+        </div>
+
+        <div class="sec">
+            <div class="sec-label">Nivel de Piso</div>
+            <input type="number" id="input-floor" value="1" class="finput finput-full" min="1" max="10">
+        </div>
+
+        <div class="pdiv"></div>
+
+        <div class="sec">
+            <div class="sec-label">Posición en el Mundo</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">
+                X/Y = plano horizontal · Z = altura (z_height en BD)
+            </div>
+            <div class="coord-grid">
+                <span class="caxis x">X</span>
+                <input type="number" id="input-pos-x" class="finput cinput" step="0.1" title="Coordenada X (Este-Oeste)">
+                <span class="caxis y">Y</span>
+                <input type="number" id="input-pos-y" class="finput cinput" step="0.1" title="Coordenada Y / Norte-Sur (campo 'y' en BD)">
+                <span class="caxis z">Z</span>
+                <input type="number" id="input-pos-z" class="finput cinput" step="0.1" title="Altura (z_height en BD, eje Y en Three.js)">
+            </div>
+        </div>
+
+        <div class="pdiv"></div>
+
+        <button id="btn-save-node"   class="btn btn-primary btn-full" style="margin-bottom:5px;">✓ Guardar Cambios</button>
+        <button id="btn-delete-node" class="btn btn-danger  btn-full">🗑 Eliminar Nodo</button>
+
+    </div>
+</aside>
+
+<!-- ════════════════════════════════════════
+     STATUS BAR
+════════════════════════════════════════ -->
+<div id="status-bar">
+    <span><span class="dot-green"></span><span id="sb-nodes">0 nodos</span></span>
+    <span id="sb-edges">0 aristas</span>
+    <span><span id="sb-dot" class="dot-green"></span><span id="sb-mode">Modo: Crear</span></span>
+</div>
+
+<!-- ════════════════════════════════════════
+     SQL MODAL
+════════════════════════════════════════ -->
+<div id="sql-overlay">
+    <div id="sql-modal">
+        <h3>Script SQL Generado</h3>
+        <textarea id="output-sql" class="ftextarea" readonly></textarea>
+        <div class="modal-foot">
+            <button id="btn-copy-sql" class="btn btn-ghost">📋 Copiar</button>
+            <button id="sql-modal-close" class="btn btn-primary">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+    import { ENV }           from './config.js';
+
+    // ════════════════════════════════════════
+    // STATE
+    // ════════════════════════════════════════
+    const State = {
+        currentFloor: 'rg',
+        currentModel: null,
+        nodes: new Map(),
+        edges: new Map(),
+        selectedNodeId: null,
+        connectModeActive: false,
+        recenterModeActive: false,
+        pathLines: [],
+        calib: { scale: 1, ox: 0, oy: 0, oz: 0, rotY: 0 }
+    };
+
+    const interactableMeshes = [];
+    let nodeMeshes = [];
+    let edgeMeshes = [];
+
+    // ════════════════════════════════════════
+    // MATERIALS
+    // ════════════════════════════════════════
+    const MAT = {
+        default:  new THREE.MeshBasicMaterial({ color: 0x3b82f6 }),
+        selected: new THREE.MeshBasicMaterial({ color: 0x10b981 }),
+        kiosk:    new THREE.MeshBasicMaterial({ color: 0xf59e0b }),
+        store:    new THREE.MeshBasicMaterial({ color: 0x8b5cf6 }),
+        stairs:   new THREE.MeshBasicMaterial({ color: 0xf87171 }),
+        elevator: new THREE.MeshBasicMaterial({ color: 0x86efac }),
+    };
+    const matEdgeDefault = new THREE.LineBasicMaterial({ color: 0x2d3a55 });
+    const matEdgePath    = new THREE.LineBasicMaterial({ color: 0xef4444 });
+
+    function matForType(type) {
+        return MAT[type] ?? MAT.default;
+    }
+
+    // ════════════════════════════════════════
+    // THREE.JS SETUP
+    // ════════════════════════════════════════
+    const container = document.getElementById('canvas-container');
+    const scene     = new THREE.Scene();
+    scene.background = new THREE.Color('#0c0e12');
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 20000);
+    camera.position.set(0, 1200, 1200);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping  = true;
+    controls.dampingFactor  = 0.08;
+    controls.maxPolarAngle  = Math.PI / 2 - 0.02;
+    controls.maxDistance    = 8000;
+    controls.minDistance    = 10;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(2000, 4000, 2000);
+    scene.add(dirLight);
+
+    // Subtle grid
+    const grid = new THREE.GridHelper(6000, 60, 0x1a2035, 0x1a2035);
+    scene.add(grid);
+
+    // ════════════════════════════════════════
+    // CAMERA HELPERS
+    // ════════════════════════════════════════
+    function centerCameraOnNodes() {
+        if (nodeMeshes.length === 0) { centerCameraOnModel(); return; }
+        const box = new THREE.Box3();
+        nodeMeshes.forEach(m => box.expandByObject(m));
+        const center = box.getCenter(new THREE.Vector3());
+        const size   = box.getSize(new THREE.Vector3());
+        controls.target.copy(center);
+        const d = Math.max(size.x, size.z, 200);
+        camera.position.set(center.x + d * 0.6, center.y + d * 0.9, center.z + d * 0.6);
+        controls.update();
+    }
+
+    function centerCameraOnModel() {
+        if (!State.currentModel) return;
+        const box    = new THREE.Box3().setFromObject(State.currentModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size   = box.getSize(new THREE.Vector3());
+        controls.target.copy(center);
+        const d = Math.min(Math.max(size.x, size.z, 500) * 1.2, controls.maxDistance * 0.9);
+        camera.position.set(center.x + d * 0.5, center.y + d * 0.8, center.z + d * 0.5);
+        controls.update();
+    }
+
+    document.getElementById('btn-center-nodes').addEventListener('click', centerCameraOnNodes);
+    document.getElementById('btn-center-model').addEventListener('click', centerCameraOnModel);
+    document.getElementById('btn-center-model2').addEventListener('click', centerCameraOnModel);
+
+    // ════════════════════════════════════════
+    // FLOOR MODEL LOADING
+    // ════════════════════════════════════════
+    function getFloorNumber(code) {
+        return { rg:1, pl:2, c1:3, c2:4, c3:5, c4:6 }[code] || 0;
+    }
+
+    const loader = new GLTFLoader();
+
+    function applyCalibration() {
+        if (!State.currentModel) return;
+        const c = State.calib;
+        State.currentModel.position.set(c.ox, c.oy, c.oz);
+        State.currentModel.scale.setScalar(c.scale);
+        State.currentModel.rotation.y = c.rotY * (Math.PI / 180);
+    }
+
+    function loadFloorModel(code) {
+        if (State.currentModel) {
+            State.currentModel.traverse(child => {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    (Array.isArray(child.material) ? child.material : [child.material])
+                        .forEach(m => m.dispose());
+                }
+            });
+            scene.remove(State.currentModel);
+            State.currentModel = null;
+            interactableMeshes.length = 0;
+        }
+
+        const url = `${ENV.SUPABASE_URL}/storage/v1/object/public/${ENV.STORAGE_BUCKET}/plano_${code}.glb`;
+        loader.load(url, (gltf) => {
+            State.currentModel = gltf.scene;
+            scene.add(State.currentModel);
+            State.currentModel.traverse(child => {
+                if (child.isMesh) {
+                    interactableMeshes.push(child);
+                    child.material.side = THREE.DoubleSide;
+                }
+            });
+            applyCalibration();
+            centerCameraOnModel();
+        }, undefined, err => console.warn('GLB no cargado:', err.message));
+    }
+
+    loadFloorModel('rg');
+
+    document.getElementById('select-floor-model').addEventListener('change', e => {
+        State.currentFloor = e.target.value;
+        loadFloorModel(State.currentFloor);
+        clearGraph();
+    });
+
+    // ════════════════════════════════════════
+    // CALIBRATION PANEL
+    // ════════════════════════════════════════
+    function syncCalibUI() {
+        const c = State.calib;
+        setCalibPair('calib-scale', c.scale);
+        setCalibPair('calib-ox',    c.ox);
+        setCalibPair('calib-oy',    c.oy);
+        setCalibPair('calib-oz',    c.oz);
+        setCalibPair('calib-rot',   c.rotY);
+    }
+
+    function setCalibPair(id, val) {
+        document.getElementById(id).value         = val;
+        document.getElementById(id + '-num').value = val;
+    }
+
+    function bindCalib(sliderId, stateProp) {
+        const slider = document.getElementById(sliderId);
+        const num    = document.getElementById(sliderId + '-num');
+        slider.addEventListener('input', () => {
+            State.calib[stateProp] = parseFloat(slider.value);
+            num.value = slider.value;
+            applyCalibration();
+        });
+        num.addEventListener('input', () => {
+            const v = parseFloat(num.value) || 0;
+            State.calib[stateProp] = v;
+            slider.value = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), v));
+            applyCalibration();
+        });
+    }
+
+    bindCalib('calib-scale', 'scale');
+    bindCalib('calib-ox',    'ox');
+    bindCalib('calib-oy',    'oy');
+    bindCalib('calib-oz',    'oz');
+    bindCalib('calib-rot',   'rotY');
+
+    document.getElementById('btn-calib-reset').addEventListener('click', () => {
+        State.calib = { scale: 1, ox: 0, oy: 0, oz: 0, rotY: 0 };
+        syncCalibUI();
+        applyCalibration();
+    });
+
+    // ════════════════════════════════════════
+    // RAYCASTER / POINTER HANDLING
+    // ════════════════════════════════════════
+    const raycaster = new THREE.Raycaster();
+    const mouse     = new THREE.Vector2();
+    let isDragging  = false;
+    const ptrDown   = new THREE.Vector2();
+
+    window.addEventListener('pointerdown', e => { ptrDown.set(e.clientX, e.clientY); isDragging = false; });
+    window.addEventListener('pointermove', e => {
+        if (ptrDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) isDragging = true;
+    });
+    window.addEventListener('pointerup', e => {
+        if (e.target.closest('header, .panel, #sql-overlay')) return;
+        if (isDragging) return;
+
+        mouse.x = (e.clientX / window.innerWidth)  *  2 - 1;
+        mouse.y = (e.clientY / window.innerHeight)  * -2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        const nodeHit = raycaster.intersectObjects(nodeMeshes);
+        if (nodeHit.length) { handleNodeClick(nodeHit[0].object.userData.id); return; }
+
+        const modelHit = raycaster.intersectObjects(interactableMeshes);
+        if (modelHit.length) {
+            if (State.recenterModeActive) {
+                controls.target.copy(modelHit[0].point);
+                controls.update();
+            } else {
+                createNewNode(modelHit[0].point);
+            }
+        } else {
+            deselectNode();
+        }
+    });
+
+    // ════════════════════════════════════════
+    // NODE MANAGEMENT
+    // ════════════════════════════════════════
+    function createNewNode(point) {
+        if (State.connectModeActive) return;
+        const id = crypto.randomUUID();
+        const nodeData = {
+            id,
+            x:           parseFloat(point.x.toFixed(2)),
+            y:           parseFloat(point.z.toFixed(2)),
+            z_height:    parseFloat(point.y.toFixed(2)),
+            floor_level: getFloorNumber(State.currentFloor),
+            node_type:   'waypoint',
+            is_3d:       true,
+            _isNew:      true
+        };
+        State.nodes.set(id, nodeData);
+        renderNodeVisual(nodeData);
+        selectNode(id);
+        updateStatus();
+    }
+
+    function renderNodeVisual(nodeData) {
+        const geo    = new THREE.SphereGeometry(8, 16, 16);
+        const sphere = new THREE.Mesh(geo, matForType(nodeData.node_type));
+        sphere.position.set(nodeData.x, (nodeData.z_height || 0) + 2.0, nodeData.y);
+        sphere.userData = { id: nodeData.id, isNode: true };
+        scene.add(sphere);
+        nodeMeshes.push(sphere);
+    }
+
+    function updateNodeMeshPosition(nodeData) {
+        const mesh = nodeMeshes.find(m => m.userData.id === nodeData.id);
+        if (mesh) mesh.position.set(nodeData.x, (nodeData.z_height || 0) + 2.0, nodeData.y);
+        rebuildEdgeVisuals();
+    }
+
+    // ════════════════════════════════════════
+    // EDGE MANAGEMENT
+    // ════════════════════════════════════════
+    function createEdge(aId, bId) {
+        const nA = State.nodes.get(aId);
+        const nB = State.nodes.get(bId);
+        for (const [, e] of State.edges) {
+            if ((e.node_a_id === aId && e.node_b_id === bId) ||
+                (e.node_a_id === bId && e.node_b_id === aId)) return;
+        }
+        const dx = nA.x - nB.x, dy = nA.y - nB.y, dz = nA.z_height - nB.z_height;
+        const edge = {
+            id: crypto.randomUUID(), node_a_id: aId, node_b_id: bId,
+            distance_weight: parseFloat(Math.sqrt(dx*dx + dy*dy + dz*dz).toFixed(3)),
+            is_3d: true, _isNew: true
+        };
+        State.edges.set(edge.id, edge);
+        renderEdgeVisual(nA, nB);
+        updateStatus();
+    }
+
+    function renderEdgeVisual(nA, nB, mat = matEdgeDefault) {
+        const pts = [
+            new THREE.Vector3(nA.x, (nA.z_height || 0) + 2.0, nA.y),
+            new THREE.Vector3(nB.x, (nB.z_height || 0) + 2.0, nB.y)
+        ];
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+        if (mat === matEdgePath) State.pathLines.push(line);
+        else edgeMeshes.push({ line });
+        scene.add(line);
+    }
+
+    function rebuildEdgeVisuals() {
+        edgeMeshes.forEach(o => { o.line.geometry.dispose(); scene.remove(o.line); });
+        edgeMeshes = [];
+        State.edges.forEach(e => {
+            const nA = State.nodes.get(e.node_a_id);
+            const nB = State.nodes.get(e.node_b_id);
+            if (nA && nB) renderEdgeVisual(nA, nB);
+        });
+    }
+
+    function rebuildGraphVisuals() {
+        nodeMeshes.forEach(m => { m.geometry.dispose(); scene.remove(m); });
+        edgeMeshes.forEach(o => { o.line.geometry.dispose(); scene.remove(o.line); });
+        nodeMeshes = []; edgeMeshes = [];
+        State.nodes.forEach(n => renderNodeVisual(n));
+        rebuildEdgeVisuals();
+    }
+
+    // ════════════════════════════════════════
+    // MODE BUTTONS
+    // ════════════════════════════════════════
+    document.getElementById('btn-mode-center').addEventListener('click', e => {
+        State.recenterModeActive = !State.recenterModeActive;
+        const btn = e.currentTarget;
+        if (State.recenterModeActive) {
+            State.connectModeActive = false;
+            const cb = document.getElementById('btn-mode-connect');
+            cb.textContent = '🔗 Conectar: OFF';
+            cb.className = 'btn btn-ghost hbtn';
+            btn.textContent = '🎯 Foco: ON';
+            btn.className = 'btn btn-focus-mode hbtn';
+        } else {
+            btn.textContent = '🎯 Foco: OFF';
+            btn.className = 'btn btn-ghost hbtn';
+        }
+        updateStatus();
+    });
+
+    document.getElementById('btn-mode-connect').addEventListener('click', e => {
+        State.connectModeActive = !State.connectModeActive;
+        const btn = e.currentTarget;
+        if (State.connectModeActive) {
+            State.recenterModeActive = false;
+            const fb = document.getElementById('btn-mode-center');
+            fb.textContent = '🎯 Foco: OFF';
+            fb.className = 'btn btn-ghost hbtn';
+            btn.textContent = '🔗 Conectar: ON';
+            btn.className = 'btn btn-active hbtn';
+        } else {
+            btn.textContent = '🔗 Conectar: OFF';
+            btn.className = 'btn btn-ghost hbtn';
+            deselectNode();
+        }
+        updateStatus();
+    });
+
+    // ════════════════════════════════════════
+    // NODE SELECTION & PROPERTIES PANEL
+    // ════════════════════════════════════════
+    function handleNodeClick(id) {
+        if (State.connectModeActive && State.selectedNodeId && State.selectedNodeId !== id) {
+            createEdge(State.selectedNodeId, id);
+        } else {
+            selectNode(id);
+        }
+    }
+
+    function selectNode(id) {
+        State.selectedNodeId = id;
+        const node = State.nodes.get(id);
+
+        nodeMeshes.forEach(m => {
+            const nd = State.nodes.get(m.userData.id);
+            m.material = m.userData.id === id ? MAT.selected : matForType(nd?.node_type);
+        });
+
+        document.getElementById('display-node-id').textContent = id;
+        const sel = document.getElementById('select-node-type');
+        sel.value = node.node_type === 'waypoint' ? 'hallway' : (node.node_type || 'hallway');
+        document.getElementById('input-floor').value   = node.floor_level;
+        document.getElementById('input-pos-x').value   = node.x;
+        document.getElementById('input-pos-y').value   = node.y;
+        document.getElementById('input-pos-z').value   = node.z_height ?? 0;
+
+        document.getElementById('ui-panel').style.display = 'flex';
+    }
+
+    function deselectNode() {
+        State.selectedNodeId = null;
+        document.getElementById('ui-panel').style.display = 'none';
+        nodeMeshes.forEach(m => {
+            const nd = State.nodes.get(m.userData.id);
+            if (nd) m.material = matForType(nd.node_type);
+        });
+    }
+
+    document.getElementById('btn-close-panel').addEventListener('click', deselectNode);
+
+    // REAL-TIME COORDINATE EDITING
+    ['input-pos-x', 'input-pos-y', 'input-pos-z'].forEach(inputId => {
+        document.getElementById(inputId).addEventListener('input', () => {
+            if (!State.selectedNodeId) return;
+            const node = State.nodes.get(State.selectedNodeId);
+            node.x        = parseFloat(document.getElementById('input-pos-x').value) || 0;
+            node.y        = parseFloat(document.getElementById('input-pos-y').value) || 0;
+            node.z_height = parseFloat(document.getElementById('input-pos-z').value) || 0;
+            node._isModified = true;
+            updateNodeMeshPosition(node);
+        });
+    });
+
+    document.getElementById('btn-save-node').addEventListener('click', () => {
+        if (!State.selectedNodeId) return;
+        const node = State.nodes.get(State.selectedNodeId);
+        const val  = document.getElementById('select-node-type').value;
+        node.node_type   = val === 'hallway' ? 'waypoint' : val;
+        node.floor_level = parseInt(document.getElementById('input-floor').value) || 1;
+        node._isModified = true;
+        selectNode(State.selectedNodeId);
+    });
+
+    document.getElementById('btn-delete-node').addEventListener('click', () => {
+        if (!State.selectedNodeId) return;
+        const id = State.selectedNodeId;
+        State.nodes.delete(id);
+        for (const [eId, edge] of State.edges) {
+            if (edge.node_a_id === id || edge.node_b_id === id) State.edges.delete(eId);
+        }
+        rebuildGraphVisuals();
+        deselectNode();
+        updateStatus();
+    });
+
+    // ════════════════════════════════════════
+    // SUPABASE LOAD
+    // ════════════════════════════════════════
+    document.getElementById('btn-load-db').addEventListener('click', async () => {
+        const floorNum = getFloorNumber(State.currentFloor);
+        const headers  = {
+            'apikey':        ENV.SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${ENV.SUPABASE_ANON_KEY}`,
+            'Content-Type':  'application/json'
+        };
+        try {
+            const resN = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_nodes?floor_level=eq.${floorNum}`, { headers });
+            if (!resN.ok) throw new Error('Error fetching map_nodes');
+            const dbNodes = await resN.json();
+
+            clearGraph();
+            dbNodes.forEach(n => { n._isNew = false; State.nodes.set(n.id, n); renderNodeVisual(n); });
+            centerCameraOnNodes();
+
+            const resE = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_edges`, { headers });
+            if (!resE.ok) throw new Error('Error fetching map_edges');
+            const dbEdges = await resE.json();
+            dbEdges.forEach(e => {
+                if (State.nodes.has(e.node_a_id) && State.nodes.has(e.node_b_id)) {
+                    e._isNew = false;
+                    State.edges.set(e.id, e);
+                    renderEdgeVisual(State.nodes.get(e.node_a_id), State.nodes.get(e.node_b_id));
+                }
+            });
+            updateStatus();
+        } catch (err) {
+            console.error(err);
+            alert('Error cargando BD. Verifica las credenciales en config.js.');
+        }
+    });
+
+    // ════════════════════════════════════════
+    // GRAPH CLEANUP
+    // ════════════════════════════════════════
+    function clearGraph() {
+        nodeMeshes.forEach(m => { m.geometry.dispose(); scene.remove(m); });
+        edgeMeshes.forEach(o => { o.line.geometry.dispose(); scene.remove(o.line); });
+        State.pathLines.forEach(l => { l.geometry.dispose(); scene.remove(l); });
+        nodeMeshes = []; edgeMeshes = []; State.pathLines = [];
+        State.nodes.clear(); State.edges.clear();
+        deselectNode(); updateStatus();
+    }
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+        if (confirm('¿Limpiar todos los nodos de la memoria? (No afecta la BD)')) clearGraph();
+    });
+
+    // ════════════════════════════════════════
+    // SQL GENERATION
+    // ════════════════════════════════════════
+    document.getElementById('btn-generate-sql').addEventListener('click', () => {
+        let sql = `-- Script generado: ${new Date().toISOString()}\n\n`;
+
+        const nodesToSync = Array.from(State.nodes.values()).filter(n => n._isNew || n._isModified);
+        if (nodesToSync.length > 0) {
+            sql += `-- === UPSERT MAP NODES ===\n`;
+            nodesToSync.forEach(n => {
+                sql += `INSERT INTO public.map_nodes (id, floor_level, x, y, z_height, node_type, is_3d)\n`;
+                sql += `VALUES ('${n.id}', ${n.floor_level}, ${n.x}, ${n.y}, ${n.z_height}, '${n.node_type}', ${n.is_3d})\n`;
+                sql += `ON CONFLICT (id) DO UPDATE SET\n`;
+                sql += `  floor_level = EXCLUDED.floor_level, x = EXCLUDED.x, y = EXCLUDED.y,\n`;
+                sql += `  z_height = EXCLUDED.z_height, node_type = EXCLUDED.node_type, is_3d = EXCLUDED.is_3d;\n\n`;
+                n._isNew = false; n._isModified = false;
+            });
+        }
+
+        const edgesToSync = Array.from(State.edges.values()).filter(e => e._isNew);
+        if (edgesToSync.length > 0) {
+            sql += `-- === INSERT MAP EDGES ===\n`;
+            edgesToSync.forEach(e => {
+                sql += `INSERT INTO public.map_edges (id, node_a_id, node_b_id, distance_weight, is_3d)\n`;
+                sql += `VALUES ('${e.id}', '${e.node_a_id}', '${e.node_b_id}', ${e.distance_weight}, ${e.is_3d})\n`;
+                sql += `ON CONFLICT (id) DO UPDATE SET distance_weight = EXCLUDED.distance_weight;\n\n`;
+                e._isNew = false;
+            });
+        }
+
+        if (!nodesToSync.length && !edgesToSync.length) {
+            sql = '-- No hay cambios pendientes para generar SQL.';
+        }
+
+        document.getElementById('output-sql').value = sql;
+        document.getElementById('sql-overlay').style.display = 'flex';
+    });
+
+    document.getElementById('sql-modal-close').addEventListener('click', () => {
+        document.getElementById('sql-overlay').style.display = 'none';
+    });
+    document.getElementById('btn-copy-sql').addEventListener('click', () => {
+        navigator.clipboard.writeText(document.getElementById('output-sql').value);
+        const btn = document.getElementById('btn-copy-sql');
+        btn.textContent = '✓ Copiado';
+        setTimeout(() => { btn.textContent = '📋 Copiar'; }, 2000);
+    });
+
+    // ════════════════════════════════════════
+    // STATUS BAR
+    // ════════════════════════════════════════
+    function updateStatus() {
+        document.getElementById('sb-nodes').textContent = `${State.nodes.size} nodos`;
+        document.getElementById('sb-edges').textContent = `${State.edges.size} aristas`;
+        const dot = document.getElementById('sb-dot');
+        if (State.connectModeActive) {
+            document.getElementById('sb-mode').textContent = 'Modo: Conectar';
+            dot.className = 'dot-amber';
+        } else if (State.recenterModeActive) {
+            document.getElementById('sb-mode').textContent = 'Modo: Recentrar';
+            dot.className = 'dot-amber';
+        } else {
+            document.getElementById('sb-mode').textContent = 'Modo: Crear';
+            dot.className = 'dot-green';
+        }
+    }
+
+    // ════════════════════════════════════════
+    // RESIZE & RENDER LOOP
+    // ════════════════════════════════════════
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    (function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    })();
+</script>
+</body>
+</html>

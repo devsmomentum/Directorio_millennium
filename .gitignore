@@ -71,3 +71,6 @@ flutter_*.png
 
 # Simbolización crashlytics
 **/ios/**/Flutter/flutter_*.app.dSYM.zip
+
+.env
+tools/config.js

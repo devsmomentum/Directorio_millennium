@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'kiosk_selector.dart';
 
 /// Header global persistente para todas las pantallas del kiosco.
 ///
@@ -122,15 +123,28 @@ class _AppHeaderState extends State<AppHeader> {
                     Expanded(
                       child: Row(
                         children: [
-                          // Logo desde Supabase Storage
-                          Image.network(
-                            'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
-                            height: 40,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.apartment_rounded,
-                              color: AppColors.textPrimary,
-                              size: 32,
+                          // Logo desde Supabase Storage.
+                          // Zona oculta de long-press: 3 segundos sobre el
+                          // logo abren el selector de kiosco (útil para
+                          // depurar en una laptop como si fuera un kiosco).
+                          KioskLongPressZone(
+                            child: Container(
+                              // Área ampliada para capturar el long-press sin
+                              // alterar el layout visible del logo.
+                              width: 56,
+                              height: 56,
+                              alignment: Alignment.center,
+                              color: AppColors.transparent,
+                              child: Image.network(
+                                'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
+                                height: 40,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.apartment_rounded,
+                                  color: AppColors.textPrimary,
+                                  size: 32,
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
