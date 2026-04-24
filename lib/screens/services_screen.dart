@@ -152,9 +152,17 @@ class _ServicesScreenState extends State<ServicesScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      image: DecorationImage(
-                        image: NetworkImage(service.imageUrl),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        service.imageUrl,
                         fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.image_not_supported,
+                          color: Colors.black26,
+                          size: 40,
+                        ),
                       ),
                     ),
                   ),
@@ -286,6 +294,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
                                       );
                                     }
                                   } catch (e) {
+                                    if (!mounted) return;
                                     setModalState(() => isProcessing = false);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
@@ -391,9 +400,16 @@ class _ServicesScreenState extends State<ServicesScreen> {
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.circular(15),
-                                    image: DecorationImage(
-                                      image: NetworkImage(srv.imageUrl),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(15),
+                                    child: Image.network(
+                                      srv.imageUrl,
                                       fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.image_not_supported,
+                                        color: Colors.black26,
+                                      ),
                                     ),
                                   ),
                                 ),

@@ -399,6 +399,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
                                       );
                                     }
                                   } catch (e) {
+                                    if (!mounted) return;
                                     setModalState(() => isProcessing = false);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
