@@ -55,6 +55,12 @@
             -webkit-font-smoothing: antialiased;
         }
 
+        /* Solución para el fondo blanco de las opciones nativas del select */
+        select option {
+            background-color: var(--surface-0);
+            color: var(--text-primary);
+        }
+
         /* ============================================
            CANVAS
         ============================================ */
@@ -364,7 +370,7 @@
         }
 
         /* ============================================
-           NODE ID CHIP
+           NODE ID CHIP & AUTOCOMPLETE
         ============================================ */
         .node-id-chip {
             background: var(--surface-2);
@@ -377,6 +383,39 @@
             word-break: break-all;
             line-height: 1.55;
             margin-bottom: 10px;
+        }
+        
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            max-height: 150px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: var(--shadow);
+            margin-top: 4px;
+        }
+        
+        .autocomplete-item {
+            padding: 8px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-primary);
+        }
+        
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        
+        .autocomplete-item:hover {
+            background: var(--surface-3);
+            color: var(--accent);
         }
 
         /* ============================================
@@ -464,9 +503,6 @@
 
 <div id="canvas-container"></div>
 
-<!-- ════════════════════════════════════════
-     HEADER
-════════════════════════════════════════ -->
 <header>
     <span class="brand">⬡ Node Editor</span>
 
@@ -505,9 +541,6 @@
     </div>
 </header>
 
-<!-- ════════════════════════════════════════
-     PANEL IZQUIERDO — CALIBRACIÓN GLB
-════════════════════════════════════════ -->
 <aside class="panel panel-left" id="calibration-panel">
     <div class="panel-head">
         <div class="panel-icon panel-icon-cyan">⚖</div>
@@ -564,9 +597,6 @@
     </div>
 </aside>
 
-<!-- ════════════════════════════════════════
-     PANEL DERECHO — PROPIEDADES DEL NODO
-════════════════════════════════════════ -->
 <aside class="panel panel-right" id="ui-panel">
     <div class="panel-head">
         <div class="panel-icon panel-icon-green">◉</div>
@@ -589,6 +619,18 @@
                 <option value="stairs">Escalera</option>
                 <option value="elevator">Ascensor</option>
             </select>
+        </div>
+
+        <div class="sec" id="sec-store-search" style="display: none; position: relative;">
+            <div class="sec-label">Vincular Tienda (BD)</div>
+            <input type="text" id="input-store-search" class="finput finput-full" placeholder="Buscar tienda..." autocomplete="off">
+            <div id="list-store-search" class="autocomplete-list"></div>
+        </div>
+
+        <div class="sec" id="sec-kiosk-search" style="display: none; position: relative;">
+            <div class="sec-label">Vincular Kiosco (BD)</div>
+            <input type="text" id="input-kiosk-search" class="finput finput-full" placeholder="Buscar kiosco..." autocomplete="off">
+            <div id="list-kiosk-search" class="autocomplete-list"></div>
         </div>
 
         <div class="sec">
@@ -615,24 +657,17 @@
 
         <div class="pdiv"></div>
 
-        <button id="btn-save-node"   class="btn btn-primary btn-full" style="margin-bottom:5px;">✓ Guardar Cambios</button>
         <button id="btn-delete-node" class="btn btn-danger  btn-full">🗑 Eliminar Nodo</button>
 
     </div>
 </aside>
 
-<!-- ════════════════════════════════════════
-     STATUS BAR
-════════════════════════════════════════ -->
 <div id="status-bar">
     <span><span class="dot-green"></span><span id="sb-nodes">0 nodos</span></span>
     <span id="sb-edges">0 aristas</span>
     <span><span id="sb-dot" class="dot-green"></span><span id="sb-mode">Modo: Crear</span></span>
 </div>
 
-<!-- ════════════════════════════════════════
-     SQL MODAL
-════════════════════════════════════════ -->
 <div id="sql-overlay">
     <div id="sql-modal">
         <h3>Script SQL Generado</h3>
@@ -658,6 +693,8 @@
         currentModel: null,
         nodes: new Map(),
         edges: new Map(),
+        stores: [], 
+        kiosks: [], 
         selectedNodeId: null,
         connectModeActive: false,
         recenterModeActive: false,
@@ -695,7 +732,7 @@
     scene.background = new THREE.Color('#0c0e12');
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 20000);
-    camera.position.set(0, 1200, 1200);
+    camera.position.set(0, 200, 200);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -714,7 +751,6 @@
     dirLight.position.set(2000, 4000, 2000);
     scene.add(dirLight);
 
-    // Subtle grid
     const grid = new THREE.GridHelper(6000, 60, 0x1a2035, 0x1a2035);
     scene.add(grid);
 
@@ -728,7 +764,7 @@
         const center = box.getCenter(new THREE.Vector3());
         const size   = box.getSize(new THREE.Vector3());
         controls.target.copy(center);
-        const d = Math.max(size.x, size.z, 200);
+        const d = Math.max(size.x, size.z, 50);
         camera.position.set(center.x + d * 0.6, center.y + d * 0.9, center.z + d * 0.6);
         controls.update();
     }
@@ -739,7 +775,7 @@
         const center = box.getCenter(new THREE.Vector3());
         const size   = box.getSize(new THREE.Vector3());
         controls.target.copy(center);
-        const d = Math.min(Math.max(size.x, size.z, 500) * 1.2, controls.maxDistance * 0.9);
+        const d = Math.min(Math.max(size.x, size.z, 50) * 1.2, controls.maxDistance * 0.9);
         camera.position.set(center.x + d * 0.5, center.y + d * 0.8, center.z + d * 0.5);
         controls.update();
     }
@@ -863,7 +899,7 @@
         if (e.target.closest('header, .panel, #sql-overlay')) return;
         if (isDragging) return;
 
-        mouse.x = (e.clientX / window.innerWidth)  *  2 - 1;
+        mouse.x = (e.clientX / window.innerWidth)  * 2 - 1;
         mouse.y = (e.clientY / window.innerHeight)  * -2 + 1;
         raycaster.setFromCamera(mouse, camera);
 
@@ -884,6 +920,101 @@
     });
 
     // ════════════════════════════════════════
+    // UI Y AUTOCOMPLETADO (SIN FILTRO POR PISO)
+    // ════════════════════════════════════════
+    function bindAutocomplete(inputId, listId, dataSource, fieldId) {
+        const input = document.getElementById(inputId);
+        const list = document.getElementById(listId);
+
+        input.addEventListener('input', () => {
+            const val = input.value.toLowerCase();
+            list.innerHTML = '';
+            
+            if (!val) {
+                list.style.display = 'none';
+                if (State.selectedNodeId) {
+                    const node = State.nodes.get(State.selectedNodeId);
+                    node[fieldId] = null;
+                    node._isModified = true;
+                }
+                return;
+            }
+            
+            // Filtrar únicamente por coincidencia de texto, sin importar el piso
+            const matches = State[dataSource].filter(item => {
+                const searchStr = `${item.name} ${item.local_number || ''} ${item.hardware_id || ''}`.toLowerCase();
+                return searchStr.includes(val);
+            });
+
+            if (matches.length > 0) {
+                matches.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-item';
+                    const displayTxt = `${item.name} ${item.local_number ? '('+item.local_number+')' : item.hardware_id ? '['+item.hardware_id+']' : ''}`;
+                    div.textContent = displayTxt;
+                    
+                    div.addEventListener('click', () => {
+                        input.value = displayTxt;
+                        list.style.display = 'none';
+                        
+                        // AUTO-GUARDADO DIRECTO EN EL ESTADO
+                        if (State.selectedNodeId) {
+                            const node = State.nodes.get(State.selectedNodeId);
+                            node[fieldId] = item.id;
+                            node._isModified = true;
+                        }
+                    });
+                    list.appendChild(div);
+                });
+                list.style.display = 'block';
+            } else {
+                const div = document.createElement('div');
+                div.className = 'autocomplete-item';
+                div.style.color = 'var(--text-muted)';
+                div.textContent = 'No se encontraron resultados';
+                list.appendChild(div);
+                list.style.display = 'block';
+            }
+        });
+
+        // Ocultar lista al hacer clic fuera
+        document.addEventListener('click', (e) => {
+            if (e.target !== input && e.target !== list) {
+                list.style.display = 'none';
+            }
+        });
+    }
+
+    // Inicializamos el autocompletado
+    bindAutocomplete('input-store-search', 'list-store-search', 'stores', 'store_id');
+    bindAutocomplete('input-kiosk-search', 'list-kiosk-search', 'kiosks', 'kiosk_id');
+
+    // Autoguardado para los Select de Tipo de nodo y Piso
+    document.getElementById('select-node-type').addEventListener('change', (e) => {
+        const val = e.target.value;
+        const secStore = document.getElementById('sec-store-search');
+        const secKiosk = document.getElementById('sec-kiosk-search');
+        
+        secStore.style.display = val === 'store' ? 'block' : 'none';
+        secKiosk.style.display = val === 'kiosk' ? 'block' : 'none';
+
+        // Auto guardado del tipo de nodo
+        if (State.selectedNodeId) {
+            const node = State.nodes.get(State.selectedNodeId);
+            node.node_type = val === 'hallway' ? 'waypoint' : val;
+            node._isModified = true;
+        }
+    });
+    
+    document.getElementById('input-floor').addEventListener('input', (e) => {
+        if (State.selectedNodeId) {
+            const node = State.nodes.get(State.selectedNodeId);
+            node.floor_level = parseInt(e.target.value) || 1;
+            node._isModified = true;
+        }
+    });
+
+    // ════════════════════════════════════════
     // NODE MANAGEMENT
     // ════════════════════════════════════════
     function createNewNode(point) {
@@ -891,6 +1022,8 @@
         const id = crypto.randomUUID();
         const nodeData = {
             id,
+            store_id:    null,
+            kiosk_id:    null,
             x:           parseFloat(point.x.toFixed(2)),
             y:           parseFloat(point.z.toFixed(2)),
             z_height:    parseFloat(point.y.toFixed(2)),
@@ -906,9 +1039,9 @@
     }
 
     function renderNodeVisual(nodeData) {
-        const geo    = new THREE.SphereGeometry(8, 16, 16);
+        const geo    = new THREE.SphereGeometry(0.5, 16, 16);
         const sphere = new THREE.Mesh(geo, matForType(nodeData.node_type));
-        sphere.position.set(nodeData.x, (nodeData.z_height || 0) + 2.0, nodeData.y);
+        sphere.position.set(nodeData.x, (nodeData.z_height || 0) + 0.5, nodeData.y);
         sphere.userData = { id: nodeData.id, isNode: true };
         scene.add(sphere);
         nodeMeshes.push(sphere);
@@ -916,7 +1049,7 @@
 
     function updateNodeMeshPosition(nodeData) {
         const mesh = nodeMeshes.find(m => m.userData.id === nodeData.id);
-        if (mesh) mesh.position.set(nodeData.x, (nodeData.z_height || 0) + 2.0, nodeData.y);
+        if (mesh) mesh.position.set(nodeData.x, (nodeData.z_height || 0) + 0.5, nodeData.y);
         rebuildEdgeVisuals();
     }
 
@@ -943,8 +1076,8 @@
 
     function renderEdgeVisual(nA, nB, mat = matEdgeDefault) {
         const pts = [
-            new THREE.Vector3(nA.x, (nA.z_height || 0) + 2.0, nA.y),
-            new THREE.Vector3(nB.x, (nB.z_height || 0) + 2.0, nB.y)
+            new THREE.Vector3(nA.x, (nA.z_height || 0) + 0.5, nA.y),
+            new THREE.Vector3(nB.x, (nB.z_height || 0) + 0.5, nB.y)
         ];
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
         if (mat === matEdgePath) State.pathLines.push(line);
@@ -1029,8 +1162,33 @@
         });
 
         document.getElementById('display-node-id').textContent = id;
+        
         const sel = document.getElementById('select-node-type');
         sel.value = node.node_type === 'waypoint' ? 'hallway' : (node.node_type || 'hallway');
+        
+        const secStore = document.getElementById('sec-store-search');
+        const secKiosk = document.getElementById('sec-kiosk-search');
+        
+        secStore.style.display = sel.value === 'store' ? 'block' : 'none';
+        secKiosk.style.display = sel.value === 'kiosk' ? 'block' : 'none';
+
+        // Llenar el input con el texto en caso de tener ya un id vinculado
+        const storeInput = document.getElementById('input-store-search');
+        if (node.store_id) {
+            const s = State.stores.find(x => x.id === node.store_id);
+            storeInput.value = s ? `${s.name} ${s.local_number ? '('+s.local_number+')' : ''}` : '';
+        } else {
+            storeInput.value = '';
+        }
+
+        const kioskInput = document.getElementById('input-kiosk-search');
+        if (node.kiosk_id) {
+            const k = State.kiosks.find(x => x.id === node.kiosk_id);
+            kioskInput.value = k ? `${k.name} ${k.hardware_id ? '['+k.hardware_id+']' : ''}` : '';
+        } else {
+            kioskInput.value = '';
+        }
+
         document.getElementById('input-floor').value   = node.floor_level;
         document.getElementById('input-pos-x').value   = node.x;
         document.getElementById('input-pos-y').value   = node.y;
@@ -1063,16 +1221,6 @@
         });
     });
 
-    document.getElementById('btn-save-node').addEventListener('click', () => {
-        if (!State.selectedNodeId) return;
-        const node = State.nodes.get(State.selectedNodeId);
-        const val  = document.getElementById('select-node-type').value;
-        node.node_type   = val === 'hallway' ? 'waypoint' : val;
-        node.floor_level = parseInt(document.getElementById('input-floor').value) || 1;
-        node._isModified = true;
-        selectNode(State.selectedNodeId);
-    });
-
     document.getElementById('btn-delete-node').addEventListener('click', () => {
         if (!State.selectedNodeId) return;
         const id = State.selectedNodeId;
@@ -1096,12 +1244,32 @@
             'Content-Type':  'application/json'
         };
         try {
-            const resN = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_nodes?floor_level=eq.${floorNum}`, { headers });
+            const resStores = await fetch(`${ENV.SUPABASE_URL}/rest/v1/stores?select=id,name,local_number,node_id,floor_level`, { headers });
+            if(resStores.ok) State.stores = await resStores.json();
+
+            const resKiosks = await fetch(`${ENV.SUPABASE_URL}/rest/v1/kiosks?select=id,name,hardware_id,node_id,floor`, { headers });
+            if(resKiosks.ok) State.kiosks = await resKiosks.json();
+
+            const resN = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_nodes?floor_level=eq.${floorNum}&is_3d=eq.true`, { headers });
             if (!resN.ok) throw new Error('Error fetching map_nodes');
             const dbNodes = await resN.json();
 
             clearGraph();
-            dbNodes.forEach(n => { n._isNew = false; State.nodes.set(n.id, n); renderNodeVisual(n); });
+            dbNodes.forEach(n => {
+                n._isNew = false;
+                
+                // Mapear de vuelta los links desde las tablas correspondientes
+                if(n.node_type === 'store') {
+                    const linkedStore = State.stores.find(s => s.node_id === n.id);
+                    if(linkedStore) n.store_id = linkedStore.id;
+                } else if(n.node_type === 'kiosk') {
+                    const linkedKiosk = State.kiosks.find(k => k.node_id === n.id);
+                    if(linkedKiosk) n.kiosk_id = linkedKiosk.id;
+                }
+                
+                State.nodes.set(n.id, n);
+                renderNodeVisual(n);
+            });
             centerCameraOnNodes();
 
             const resE = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_edges`, { headers });
@@ -1117,7 +1285,7 @@
             updateStatus();
         } catch (err) {
             console.error(err);
-            alert('Error cargando BD. Verifica las credenciales en config.js.');
+            alert('Error cargando BD. Verifica las credenciales en config.js o si la columna floor_level existe.');
         }
     });
 
@@ -1152,6 +1320,16 @@
                 sql += `ON CONFLICT (id) DO UPDATE SET\n`;
                 sql += `  floor_level = EXCLUDED.floor_level, x = EXCLUDED.x, y = EXCLUDED.y,\n`;
                 sql += `  z_height = EXCLUDED.z_height, node_type = EXCLUDED.node_type, is_3d = EXCLUDED.is_3d;\n\n`;
+                
+                // SQL adicional si vinculó tienda o kiosco
+                if (n.node_type === 'store' && n.store_id) {
+                    sql += `-- Vinculando tienda seleccionada al nodo\n`;
+                    sql += `UPDATE public.stores SET node_id = '${n.id}' WHERE id = '${n.store_id}';\n\n`;
+                } else if (n.node_type === 'kiosk' && n.kiosk_id) {
+                    sql += `-- Vinculando kiosco seleccionado al nodo\n`;
+                    sql += `UPDATE public.kiosks SET node_id = '${n.id}' WHERE id = '${n.kiosk_id}';\n\n`;
+                }
+
                 n._isNew = false; n._isModified = false;
             });
         }
