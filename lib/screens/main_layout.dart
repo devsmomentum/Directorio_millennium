@@ -253,6 +253,24 @@ class _MainLayoutState extends State<MainLayout> {
     );
   }
 
+  /// Devuelve el subtítulo del header según la pestaña activa.
+  String get _headerSubtitle {
+    switch (_currentIndex) {
+      case 0:
+        return 'INICIO';
+      case 1:
+        return 'DIRECTORIO INTERACTIVO';
+      case 2:
+        return 'SERVICIOS';
+      case 3:
+        return 'ASISTENTE VIRTUAL';
+      case 4:
+        return 'CUPONES Y OFERTAS';
+      default:
+        return 'DIRECTORIO INTERACTIVO';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // 🚀 ENVOLVEMOS TODO EN UN LISTENER
@@ -272,7 +290,7 @@ class _MainLayoutState extends State<MainLayout> {
                 // Banner publicitario superior (10% fijo, igual que el inferior)
                 const TopNavigationAdBanner(),
                 // Header unificado (debajo del banner)
-                const AppHeader(),
+                AppHeader(subtitle: _headerSubtitle),
                 // Contenido de las pestañas
                 Expanded(
                   child: IndexedStack(index: _currentIndex, children: _screens),

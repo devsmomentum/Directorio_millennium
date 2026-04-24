@@ -452,64 +452,12 @@ class _CouponsScreenState extends State<CouponsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
-      appBar: AppBar(
-        title: const Text(
-          'MILLENNIUM MALL - OFERTAS',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-            fontSize: 18,
-          ),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: Text(
-                'Tasa BCV: Bs. ${_bcvRate.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: Color(0xFF00E5FF),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
       body: ScreenAdBanners(
         showTop: false,
         showBottom: false,
         child: Column(
           children: [
-            Container(
-              height: 80,
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF00E5FF), Color(0xFF007AFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: const Center(
-                child: Text(
-                  'SELECCIONA UNA OFERTA PARA COMPRAR',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
+
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -525,13 +473,13 @@ class _CouponsScreenState extends State<CouponsScreen> {
                       ),
                     )
                   : GridView.builder(
-                      padding: const EdgeInsets.all(30),
+                      padding: const EdgeInsets.all(20),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 3,
-                            crossAxisSpacing: 30,
-                            mainAxisSpacing: 30,
-                            childAspectRatio: 0.8,
+                            crossAxisSpacing: 20,
+                            mainAxisSpacing: 20,
+                            childAspectRatio: 0.72,
                           ),
                       itemCount: _allCoupons.length,
                       itemBuilder: (context, index) {
@@ -637,9 +585,12 @@ class _CouponsScreenState extends State<CouponsScreen> {
                   ),
                 ),
                 Expanded(
-                  flex: 3,
+                  flex: 2,
                   child: Padding(
-                    padding: const EdgeInsets.all(15.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 8.0,
+                    ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -648,32 +599,36 @@ class _CouponsScreenState extends State<CouponsScreen> {
                           style: const TextStyle(
                             color: Color(0xFF00E5FF),
                             fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Flexible(
+                          child: Text(
+                            coupon.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Ref: Bs. ${priceBs.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Colors.white54,
                             fontSize: 12,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          coupon.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 18,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 15),
-                        Text(
-                          'Ref: Bs. ${priceBs.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 6),
                         const Text(
                           'TOCA PARA COMPRAR',
                           style: TextStyle(

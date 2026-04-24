@@ -8,7 +8,14 @@ import '../theme/app_theme.dart';
 /// publicitario superior. Diseñado para ser la única cabecera de la app,
 /// reemplazando cualquier logo o header quemado en pantallas individuales.
 class AppHeader extends StatefulWidget {
-  const AppHeader({super.key});
+  /// Texto que aparece debajo de "MILLENNIUM MALL".
+  /// Cambia dinámicamente según la vista activa.
+  final String subtitle;
+
+  const AppHeader({
+    super.key,
+    this.subtitle = 'DIRECTORIO INTERACTIVO',
+  });
 
   /// Altura del contenido principal del header (sin las líneas de gradiente).
   static const double _headerHeight = 72.0;
@@ -147,7 +154,7 @@ class _AppHeaderState extends State<AppHeader> {
                                       AppColors.primaryGradient
                                           .createShader(bounds),
                                   child: Text(
-                                    'DIRECTORIO INTERACTIVO',
+                                    widget.subtitle,
                                     style: AppTextStyles.caption.copyWith(
                                       color: AppColors.textPrimary,
                                       fontWeight: FontWeight.w700,
