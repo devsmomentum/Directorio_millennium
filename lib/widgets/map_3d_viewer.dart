@@ -16,11 +16,11 @@ class Map3DViewer extends StatefulWidget {
   final String? highlightTargetId;
 
   const Map3DViewer({
-    Key? key,
+    super.key,
     required this.modelUrl,
     this.isInteractive = true,
     this.highlightTargetId,
-  }) : super(key: key);
+  });
 
   @override
   State<Map3DViewer> createState() => _Map3DViewerState();

@@ -43,7 +43,7 @@ const Map<int, String> _floorNumToName = {
 };
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({Key? key}) : super(key: key);
+  const MapScreen({super.key});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -407,7 +407,7 @@ class _MapScreenState extends State<MapScreen> {
         final name = store.name.toLowerCase();
         final category = store.category.toLowerCase();
         // Asume que tienes `description` en tu modelo Store. Si no, quita esta línea.
-        final description = store.description?.toLowerCase() ?? ''; 
+        final description = store.description.toLowerCase() ?? ''; 
 
         final matchesQuery = query.isEmpty ||
             name.contains(query) ||

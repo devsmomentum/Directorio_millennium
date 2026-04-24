@@ -34,13 +34,13 @@ class MapViewWeb extends StatefulWidget {
   final VoidCallback? onAvatarArrived;
 
   const MapViewWeb({
-    Key? key,
+    super.key,
     required this.modelUrl,
     this.avatarUrl,
     this.onMapLoaded,
     this.onError,
     this.onAvatarArrived,
-  }) : super(key: key);
+  });
 
   @override
   State<MapViewWeb> createState() => MapViewWebState();
@@ -51,6 +51,7 @@ class MapViewWebState extends State<MapViewWeb> {
   bool _isLoading = true;
   bool _hasError = false;
   Timer? _webLoadPoller;
+  String _webCommandBootstrap = '';
 
   // ══════════════════════════════════════════════════════════════════════════
   // Color de fondo de la app convertido a hex CSS para evitar parpadeos blancos
@@ -131,6 +132,44 @@ class MapViewWebState extends State<MapViewWeb> {
       transform: scale(0.92);
       background-color: #2a2a2a;
     }
+
+    /* Panel de calibración (debug) */
+    #calib-panel {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 60;
+      width: 220px;
+      padding: 10px 10px 8px;
+      border-radius: 10px;
+      background: rgba(10, 12, 18, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      backdrop-filter: blur(10px);
+      color: rgba(255,255,255,0.92);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: none; /* toggle con tecla C */
+    }
+    #calib-panel h4 {
+      font-size: 12px;
+      margin: 0 0 8px;
+      letter-spacing: 0.3px;
+      opacity: 0.95;
+    }
+    .calib-row { margin-bottom: 7px; }
+    .calib-row label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      opacity: 0.85;
+      margin-bottom: 3px;
+    }
+    .calib-row input[type="range"] { width: 100%; }
+    #calib-hint {
+      font-size: 10px;
+      opacity: 0.75;
+      margin-top: 6px;
+      line-height: 1.25;
+    }
   </style>
 </head>
 <body>
@@ -138,12 +177,47 @@ class MapViewWebState extends State<MapViewWeb> {
     <canvas id="map-canvas"></canvas>
 
     <button id="center-view-btn" type="button" aria-label="Centrar mapa"></button>
+
+    <div id="calib-panel">
+      <h4>Calibración mapa (C)</h4>
+      <div class="calib-row">
+        <label><span>Scale</span><span id="calib-scale-val">1.00</span></label>
+        <input id="calib-scale" type="range" min="0.1" max="10" step="0.01" value="1">
+      </div>
+      <div class="calib-row">
+        <label><span>Offset X</span><span id="calib-ox-val">0.00</span></label>
+        <input id="calib-ox" type="range" min="-200" max="200" step="0.1" value="0">
+      </div>
+      <div class="calib-row">
+        <label><span>Offset Y</span><span id="calib-oy-val">0.00</span></label>
+        <input id="calib-oy" type="range" min="-50" max="50" step="0.1" value="0">
+      </div>
+      <div class="calib-row">
+        <label><span>Offset Z</span><span id="calib-oz-val">0.00</span></label>
+        <input id="calib-oz" type="range" min="-200" max="200" step="0.1" value="0">
+      </div>
+      <div class="calib-row">
+        <label><span>Rot Y (°)</span><span id="calib-rot-val">0.0</span></label>
+        <input id="calib-rot" type="range" min="-180" max="180" step="0.5" value="0">
+      </div>
+      <div id="calib-hint">Ajusta hasta que nodos/recorrido coincidan. Se guarda por URL del modelo.</div>
+    </div>
   </div>
+
+  <script>
+    // Comandos que Flutter web no puede inyectar vía evaluateJavascript.
+    // Se rellenan desde Dart y se ejecutan al final del módulo.
+    window.__flutterBootstrapCommands = ${jsonEncode(_webCommandBootstrap)};
+  </script>
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.1/+esm';
     import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js/+esm';
     import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/loaders/GLTFLoader.js/+esm';
+
+    console.log('[MapViewWeb][Debug] JS actualizado: waypoint markers + fit + autocenter (2026-04-24)');
+    // Handshake para que Flutter sepa que el módulo inicializó.
+    window.__bridgeReady = true;
 
     const MODEL_URL = '${widget.modelUrl}';
     const AVATAR_URL = '${widget.avatarUrl ?? ''}';
@@ -151,6 +225,107 @@ class MapViewWebState extends State<MapViewWeb> {
     const container = document.getElementById('viewer-container');
     const canvas = document.getElementById('map-canvas');
     const centerViewBtn = document.getElementById('center-view-btn');
+    const calibPanel = document.getElementById('calib-panel');
+    const calibScale = document.getElementById('calib-scale');
+    const calibOx = document.getElementById('calib-ox');
+    const calibOy = document.getElementById('calib-oy');
+    const calibOz = document.getElementById('calib-oz');
+    const calibRot = document.getElementById('calib-rot');
+
+    const calibScaleVal = document.getElementById('calib-scale-val');
+    const calibOxVal = document.getElementById('calib-ox-val');
+    const calibOyVal = document.getElementById('calib-oy-val');
+    const calibOzVal = document.getElementById('calib-oz-val');
+    const calibRotVal = document.getElementById('calib-rot-val');
+
+    const calibStorageKey = 'milemium:mapCalib:' + MODEL_URL;
+    let mapCalibration = { scale: 1, ox: 0, oy: 0, oz: 0, rotY: 0 };
+
+    function loadStoredCalibration() {
+      try {
+        const raw = localStorage.getItem(calibStorageKey);
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        if (!obj) return;
+        mapCalibration = {
+          scale: Number(obj.scale) || 1,
+          ox: Number(obj.ox) || 0,
+          oy: Number(obj.oy) || 0,
+          oz: Number(obj.oz) || 0,
+          rotY: Number(obj.rotY) || 0,
+        };
+      } catch (_) {}
+    }
+
+    function persistCalibration() {
+      try {
+        localStorage.setItem(calibStorageKey, JSON.stringify(mapCalibration));
+      } catch (_) {}
+    }
+
+    function syncCalibUI() {
+      calibScale.value = String(mapCalibration.scale);
+      calibOx.value = String(mapCalibration.ox);
+      calibOy.value = String(mapCalibration.oy);
+      calibOz.value = String(mapCalibration.oz);
+      calibRot.value = String(mapCalibration.rotY);
+      calibScaleVal.textContent = mapCalibration.scale.toFixed(2);
+      calibOxVal.textContent = mapCalibration.ox.toFixed(2);
+      calibOyVal.textContent = mapCalibration.oy.toFixed(2);
+      calibOzVal.textContent = mapCalibration.oz.toFixed(2);
+      calibRotVal.textContent = mapCalibration.rotY.toFixed(1);
+    }
+
+    function applyMapCalibration() {
+      if (!mapModel) return;
+      const c = mapCalibration;
+      mapModel.position.set(c.ox, c.oy, c.oz);
+      mapModel.scale.setScalar(Math.max(0.001, c.scale));
+      mapModel.rotation.y = (c.rotY || 0) * (Math.PI / 180);
+      // Recalcular bounds/centro para cámara y fitting de waypoints.
+      mapBounds = new THREE.Box3().setFromObject(mapModel);
+      mapCenter = mapBounds.getCenter(new THREE.Vector3());
+    }
+
+    function setCalibrationFromUI() {
+      mapCalibration.scale = Number(calibScale.value) || 1;
+      mapCalibration.ox = Number(calibOx.value) || 0;
+      mapCalibration.oy = Number(calibOy.value) || 0;
+      mapCalibration.oz = Number(calibOz.value) || 0;
+      mapCalibration.rotY = Number(calibRot.value) || 0;
+      syncCalibUI();
+      applyMapCalibration();
+      persistCalibration();
+      console.log('[MapViewWeb][Calib]', JSON.stringify(mapCalibration));
+    }
+
+    // Exponer setter para Flutter (por si luego quieres guardar en Supabase).
+    window.setMapCalibration = function(c) {
+      if (!c) return;
+      mapCalibration = {
+        scale: Number(c.scale) || 1,
+        ox: Number(c.ox) || 0,
+        oy: Number(c.oy) || 0,
+        oz: Number(c.oz) || 0,
+        rotY: Number(c.rotY) || 0,
+      };
+      syncCalibUI();
+      applyMapCalibration();
+      persistCalibration();
+    };
+
+    // Toggle panel con tecla C.
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'c' || e.key === 'C') {
+        calibPanel.style.display = (calibPanel.style.display === 'none' || !calibPanel.style.display)
+          ? 'block'
+          : 'none';
+      }
+    });
+
+    [calibScale, calibOx, calibOy, calibOz, calibRot].forEach(function(input) {
+      input.addEventListener('input', setCalibrationFromUI);
+    });
 
     // ─────────────────────────────────────────────────────────────────
     // Estado del avatar 3D (in-scene, no DOM overlay)
@@ -174,6 +349,159 @@ class MapViewWebState extends State<MapViewWeb> {
       isWalking: false,
       targetQuat: new THREE.Quaternion(),
     };
+
+    // Waypoint markers (debug): esferas para verificar alineación con el mapa.
+    let waypointMarkers = [];
+    const waypointMarkerMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff3b30,
+      // Queremos que SIEMPRE se vean para depurar alineación.
+      depthTest: false,
+      depthWrite: false,
+    });
+
+    function clearWaypointMarkers() {
+      if (!waypointMarkers || waypointMarkers.length === 0) return;
+      for (const m of waypointMarkers) {
+        scene.remove(m);
+        if (m.geometry) m.geometry.dispose?.();
+      }
+      waypointMarkers = [];
+    }
+
+    function drawWaypointMarkers(waypoints) {
+      clearWaypointMarkers();
+      if (!Array.isArray(waypoints) || waypoints.length === 0) return;
+      const radius = 0.18;
+      const geom = new THREE.SphereGeometry(radius, 10, 8);
+      for (let i = 0; i < waypoints.length; i++) {
+        const w = waypoints[i];
+        const mesh = new THREE.Mesh(geom.clone(), waypointMarkerMaterial);
+        mesh.position.copy(w);
+        // Un poquito arriba para evitar z-fighting con el piso del .glb.
+        mesh.position.y += 0.04;
+        mesh.renderOrder = 999;
+        mesh.frustumCulled = false;
+        scene.add(mesh);
+        waypointMarkers.push(mesh);
+      }
+    }
+
+    function computeXZBounds(points) {
+      if (!points || points.length === 0) return null;
+      let minX = points[0].x, maxX = points[0].x;
+      let minZ = points[0].z, maxZ = points[0].z;
+      for (let i = 1; i < points.length; i++) {
+        const p = points[i];
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
+      }
+      return { minX, maxX, minZ, maxZ };
+    }
+
+    function rotateXZ(x, z, angleRad) {
+      const c = Math.cos(angleRad);
+      const s = Math.sin(angleRad);
+      return { x: x * c - z * s, z: x * s + z * c };
+    }
+
+    function fitWaypointsToMap(waypoints) {
+      if (!mapBounds || !waypoints || waypoints.length === 0) {
+        return { waypoints: waypoints, fitted: false };
+      }
+
+      const mapSize = mapBounds.getSize(new THREE.Vector3());
+      const mapSpanX = Math.max(mapSize.x, 1e-3);
+      const mapSpanZ = Math.max(mapSize.z, 1e-3);
+      const mapSpan = Math.max(mapSpanX, mapSpanZ, 1e-3);
+      const mapC = mapBounds.getCenter(new THREE.Vector3());
+
+      const wpB0 = computeXZBounds(waypoints);
+      if (!wpB0) return { waypoints: waypoints, fitted: false };
+      const wpCx0 = (wpB0.minX + wpB0.maxX) * 0.5;
+      const wpCz0 = (wpB0.minZ + wpB0.maxZ) * 0.5;
+
+      // Evaluamos rotaciones 0/90/180/270 y escogemos la que mejor "encaje".
+      const candidates = [0, 90, 180, 270].map(function(deg) {
+        return deg * (Math.PI / 180);
+      });
+
+      function scoreFor(angleRad) {
+        // Rotar alrededor del centro del conjunto de waypoints.
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (let i = 0; i < waypoints.length; i++) {
+          const p = waypoints[i];
+          const rxz = rotateXZ(p.x - wpCx0, p.z - wpCz0, angleRad);
+          if (rxz.x < minX) minX = rxz.x;
+          if (rxz.x > maxX) maxX = rxz.x;
+          if (rxz.z < minZ) minZ = rxz.z;
+          if (rxz.z > maxZ) maxZ = rxz.z;
+        }
+        const spanX = Math.max(maxX - minX, 1e-3);
+        const spanZ = Math.max(maxZ - minZ, 1e-3);
+        const span = Math.max(spanX, spanZ, 1e-3);
+
+        const scale = (mapSpan * 0.92) / span;
+
+        // Aspect ratio penalty (queremos que el bbox tenga proporción similar al mapa).
+        const arWp = spanX / spanZ;
+        const arMap = mapSpanX / mapSpanZ;
+        const aspectPenalty = Math.abs(Math.log(arWp) - Math.log(arMap));
+
+        // Out-of-bounds penalty: cuántos puntos quedan fuera del bbox del mapa.
+        const marginX = mapSpanX * 0.06;
+        const marginZ = mapSpanZ * 0.06;
+        const minAllowedX = mapBounds.min.x - marginX;
+        const maxAllowedX = mapBounds.max.x + marginX;
+        const minAllowedZ = mapBounds.min.z - marginZ;
+        const maxAllowedZ = mapBounds.max.z + marginZ;
+
+        let oob = 0;
+        for (let i = 0; i < waypoints.length; i++) {
+          const p = waypoints[i];
+          const rxz = rotateXZ(p.x - wpCx0, p.z - wpCz0, angleRad);
+          const tx = rxz.x * scale + mapC.x;
+          const tz = rxz.z * scale + mapC.z;
+          if (tx < minAllowedX || tx > maxAllowedX || tz < minAllowedZ || tz > maxAllowedZ) {
+            oob += 1;
+          }
+        }
+
+        // Ponderación simple: priorizar encaje (oob), luego proporción.
+        return { angleRad, scale, spanX, spanZ, aspectPenalty, oob };
+      }
+
+      let best = null;
+      for (const a of candidates) {
+        const s = scoreFor(a);
+        if (!best) {
+          best = s;
+          continue;
+        }
+        const bestScore = (best.oob * 10.0) + best.aspectPenalty;
+        const curScore = (s.oob * 10.0) + s.aspectPenalty;
+        if (curScore < bestScore) best = s;
+      }
+
+      if (!best) return { waypoints: waypoints, fitted: false };
+
+      // Aplicar transformación ganadora.
+      for (let i = 0; i < waypoints.length; i++) {
+        const p = waypoints[i];
+        const rxz = rotateXZ(p.x - wpCx0, p.z - wpCz0, best.angleRad);
+        p.x = rxz.x * best.scale + mapC.x;
+        p.z = rxz.z * best.scale + mapC.z;
+      }
+
+      console.log(
+        '[MapViewWeb][Avatar][Fit] rotY=' + (best.angleRad * 180 / Math.PI).toFixed(0)
+        + '° scale=' + best.scale.toFixed(4)
+        + ' oob=' + best.oob
+        + ' aspectPenalty=' + best.aspectPenalty.toFixed(3)
+      );
+      return { waypoints: waypoints, fitted: true };
+    }
 
     const clock = new THREE.Clock();
 
@@ -426,7 +754,7 @@ class MapViewWebState extends State<MapViewWeb> {
       const nextTarget = controls.target.clone();
 
       if (target) {
-        const parts = String(target).trim().split(/\s+/);
+        const parts = String(target).trim().split(/s+/);
         if (parts.length >= 3) {
           nextTarget.set(
             parseLength(parts[0], mapCenter.x),
@@ -441,7 +769,7 @@ class MapViewWebState extends State<MapViewWeb> {
       let radius = (minDistance + maxDistance) * 0.5;
 
       if (orbit) {
-        const parts = String(orbit).trim().split(/\s+/);
+        const parts = String(orbit).trim().split(/s+/);
         if (parts.length >= 3) {
           theta = parseDegrees(parts[0], theta);
           phi = parseDegrees(parts[1], phi);
@@ -566,7 +894,9 @@ class MapViewWebState extends State<MapViewWeb> {
           const root = gltf.scene;
           root.name = 'avatar-root';
           root.visible = false;
-          root.scale.setScalar(options.scale || avatarState.scale || 1.0);
+          // La escala final se decide tras medir el bounding box del avatar
+          // y compararlo con el tamaño del mapa (si existe).
+          root.scale.setScalar(1.0);
 
           root.traverse(function(obj) {
             if (!obj.isMesh) return;
@@ -582,10 +912,46 @@ class MapViewWebState extends State<MapViewWeb> {
             }
           });
 
+          // ── Auto-ajuste para que el avatar sea visible en el mapa ──
+          // Problema típico: el origen del rig está en la pelvis → el modelo
+          // queda enterrado en el piso; o la escala no coincide con el mapa → invisible.
+          const wantsScale = Number.isFinite(options.scale) ? Number(options.scale) : null;
+          const wantsYOffset =
+            options.yOffset !== undefined && options.yOffset !== null
+              ? Number(options.yOffset)
+              : null;
+
+          // Medir altura del avatar en unidades del mundo (escala 1.0).
+          const avatarBox0 = new THREE.Box3().setFromObject(root);
+          const avatarSize0 = avatarBox0.getSize(new THREE.Vector3());
+          const avatarHeight0 = Math.max(avatarSize0.y, 1e-3);
+
+          let finalScale = wantsScale;
+          if (!Number.isFinite(finalScale) || finalScale <= 0) {
+            // Escala automática basada en el tamaño del mapa (si está disponible).
+            // Buscamos que la altura del avatar sea ~3.5% del span X/Z del mapa.
+            if (mapBounds && !mapBounds.isEmpty()) {
+              const mapSize = mapBounds.getSize(new THREE.Vector3());
+              const mapSpan = Math.max(mapSize.x, mapSize.z, 1.0);
+              const desiredHeight = THREE.MathUtils.clamp(mapSpan * 0.035, 0.7, 2.2);
+              finalScale = desiredHeight / avatarHeight0;
+            } else {
+              finalScale = avatarState.scale || 1.0;
+            }
+          }
+
+          root.scale.setScalar(finalScale);
+
+          // Recalcular bounding box con la escala aplicada para alinear pies al piso.
+          const avatarBox = new THREE.Box3().setFromObject(root);
+          const autoYOffset = -avatarBox.min.y; // eleva hasta que min.y quede en 0
+          const finalYOffset =
+            Number.isFinite(wantsYOffset) ? wantsYOffset : (Number.isFinite(autoYOffset) ? autoYOffset : 0.0);
+
           avatarState.root = root;
           avatarState.sourceUrl = avatarSrc;
-          avatarState.yOffset = options.yOffset ?? 0.0;
-          avatarState.scale = options.scale || avatarState.scale;
+          avatarState.yOffset = finalYOffset;
+          avatarState.scale = finalScale;
 
           avatarState.mixer = new THREE.AnimationMixer(root);
           avatarState.mixer.timeScale = 1.0;
@@ -669,13 +1035,27 @@ class MapViewWebState extends State<MapViewWeb> {
 
     function startAvatarRoute(rawWaypoints, opts) {
       const options = opts || {};
-      const waypoints = normalizeWaypoints(rawWaypoints);
+      const fit = fitWaypointsToMap(normalizeWaypoints(rawWaypoints));
+      const waypoints = fit.waypoints || [];
 
       if (waypoints.length === 0) {
         console.log('[MapViewWeb][Avatar] Ruta vacía');
         stopAvatarRoute();
         return;
       }
+
+      // Debug visual: siempre dibujar markers y centrar cámara, incluso si el
+      // avatar todavía no está listo. Así verificamos alineación de coordenadas.
+      drawWaypointMarkers(waypoints);
+      if (options.autoCenter !== false) {
+        centerCameraOnPoint(waypoints[waypoints.length - 1]);
+      }
+      console.log(
+        '[MapViewWeb][Avatar][Debug] markers=' + waypoints.length
+        + ' last=(' + waypoints[waypoints.length - 1].x.toFixed(2)
+        + ', ' + waypoints[waypoints.length - 1].y.toFixed(2)
+        + ', ' + waypoints[waypoints.length - 1].z.toFixed(2) + ')'
+      );
 
       // Si el avatar no está listo, guardamos la ruta y reintentamos al cargar.
       if (!avatarState.ready || !avatarState.root) {
@@ -724,6 +1104,7 @@ class MapViewWebState extends State<MapViewWeb> {
       avatarState.segmentIndex = 0;
       avatarState.segmentProgress = 0.0;
       avatarState.isWalking = false;
+      clearWaypointMarkers();
       if (avatarState.ready) {
         playIdle();
       }
@@ -887,6 +1268,11 @@ class MapViewWebState extends State<MapViewWeb> {
           }
         });
 
+        // Calibración persistida (misma idea que el editor 3D).
+        loadStoredCalibration();
+        syncCalibUI();
+        applyMapCalibration();
+
         mapBounds = new THREE.Box3().setFromObject(mapModel);
         if (mapBounds.isEmpty()) {
           throw new Error('Bounding box del mapa vacía');
@@ -957,10 +1343,33 @@ class MapViewWebState extends State<MapViewWeb> {
       renderer.render(scene, camera);
     }
     animate();
+
+    // En Flutter web, ejecutamos comandos que vienen embebidos en el HTML.
+    try {
+      const boot = window.__flutterBootstrapCommands;
+      if (boot && typeof boot === 'string' && boot.trim().length > 0) {
+        console.log('[MapViewWeb][WebBootstrap] Ejecutando comandos');
+        // eslint-disable-next-line no-eval
+        eval(boot);
+      }
+    } catch (e) {
+      console.log('[MapViewWeb][WebBootstrap][ERROR]', e && (e.stack || e.message || e));
+    }
   </script>
 </body>
 </html>
 ''';
+
+  Future<void> _reloadHtmlIfPossible() async {
+    final c = _webViewController;
+    if (c == null) return;
+    await c.loadData(
+      data: _initialHtml,
+      mimeType: 'text/html',
+      encoding: 'utf-8',
+      baseUrl: WebUri('https://localhost'),
+    );
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // Ciclo de vida del widget
@@ -1041,13 +1450,34 @@ class MapViewWebState extends State<MapViewWeb> {
   // API pública: Comunicación Flutter → Web
   // ══════════════════════════════════════════════════════════════════════════
 
+  Future<dynamic> _evalJs(String source) async {
+    final c = _webViewController;
+    if (c == null) return null;
+    // `evaluateJavascript` es lo único estable en este proyecto actualmente.
+    // Añadimos un handshake (`window.__bridgeReady`) para no llamar antes de tiempo.
+    return await c.evaluateJavascript(source: source);
+  }
+
+  Future<bool> _waitBridgeReady({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final ready = await _evalJs("window.__bridgeReady === true ? 'yes' : 'no';");
+      if (ready == 'yes') return true;
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+    return false;
+  }
+
   /// Mueve la cámara suavemente hacia un punto y órbita específicos.
   /// [target] → Coordenadas del objetivo, ej: "0m 1m 0m"
   /// [orbit]  → Órbita de cámara, ej: "45deg 55deg 5m"
   Future<void> updateCamera(String target, String orbit) async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(
-      source: "updateCamera('$target', '$orbit');",
+    await _waitBridgeReady();
+    await _evalJs(
+      "window.updateCamera?.('${target.replaceAll("'", "\\'")}', '${orbit.replaceAll("'", "\\'")}');",
     );
     debugPrint('[MapViewWeb][Flutter→Web] updateCamera($target, $orbit)');
   }
@@ -1055,23 +1485,40 @@ class MapViewWebState extends State<MapViewWeb> {
   /// Resetea la cámara a la posición por defecto.
   Future<void> resetCamera() async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(source: "resetCamera();");
+    await _waitBridgeReady();
+    await _evalJs("window.resetCamera?.();");
   }
 
   /// Centra el mapa con una vista superior y cercana.
   Future<void> centerTopView() async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(source: "centerTopView();");
+    await _waitBridgeReady();
+    await _evalJs("window.centerTopView?.();");
     debugPrint('[MapViewWeb][Flutter→Web] centerTopView()');
   }
 
   /// Centra la cámara sobre un punto de mundo 3D (coordenadas three.js).
   Future<void> centerOnMapPoint(double x, double y, double z) async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(
-      source: "centerOnMapPoint($x, $y, $z);",
-    );
+    if (kIsWeb) {
+      _webCommandBootstrap = "window.centerOnMapPoint?.($x,$y,$z);";
+      await _reloadHtmlIfPossible();
+      debugPrint('[MapViewWeb][Flutter→Web][WEB] centerOnMapPoint via reload');
+      return;
+    }
+    await _waitBridgeReady();
+    final result = await _evalJs("(function(){"
+        "try{"
+        "if(!window.centerOnMapPoint){console.log('[MapViewWeb][Bridge] centerOnMapPoint undefined'); return 'missing';}"
+        "window.centerOnMapPoint($x,$y,$z);"
+        "return 'ok';"
+        "}catch(e){"
+        "console.log('[MapViewWeb][Bridge] centerOnMapPoint error', e && (e.stack||e.message||e));"
+        "return 'error';"
+        "}"
+        "})()");
     debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint($x, $y, $z)');
+    debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint result=$result');
   }
 
   /// Carga un modelo de avatar .glb y lo añade DENTRO de la escena three.js.
@@ -1079,10 +1526,9 @@ class MapViewWebState extends State<MapViewWeb> {
   /// [opts] admite: `scale` (double), `yOffset` (double).
   Future<void> loadAvatar(String avatarSrc, {Map<String, dynamic>? opts}) async {
     if (_webViewController == null) return;
+    await _waitBridgeReady();
     final optsJson = jsonEncode(opts ?? const <String, dynamic>{});
-    await _webViewController!.evaluateJavascript(
-      source: "loadAvatar(${jsonEncode(avatarSrc)}, $optsJson);",
-    );
+    await _evalJs("window.loadAvatar?.(${jsonEncode(avatarSrc)}, $optsJson);");
     debugPrint('[MapViewWeb][Flutter→Web] loadAvatar($avatarSrc)');
   }
 
@@ -1096,34 +1542,53 @@ class MapViewWebState extends State<MapViewWeb> {
     double speed = 1.2,
   }) async {
     if (_webViewController == null) return;
+    if (kIsWeb) {
+      final payload = jsonEncode(waypoints);
+      final opts = jsonEncode({'speed': speed});
+      _webCommandBootstrap =
+          "window.startAvatarRoute?.($payload,$opts);";
+      await _reloadHtmlIfPossible();
+      debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute via reload');
+      return;
+    }
+    await _waitBridgeReady();
     final payload = jsonEncode(waypoints);
     final opts = jsonEncode({'speed': speed});
-    await _webViewController!.evaluateJavascript(
-      source: "startAvatarRoute($payload, $opts);",
-    );
+    final result = await _evalJs("(function(){"
+        "try{"
+        "if(!window.startAvatarRoute){console.log('[MapViewWeb][Bridge] startAvatarRoute undefined'); return 'missing';}"
+        "window.startAvatarRoute($payload,$opts);"
+        "return 'ok';"
+        "}catch(e){"
+        "console.log('[MapViewWeb][Bridge] startAvatarRoute error', e && (e.stack||e.message||e));"
+        "return 'error';"
+        "}"
+        "})()");
     debugPrint(
       '[MapViewWeb][Flutter→Web] startAvatarRoute(${waypoints.length} wp, $speed u/s)',
     );
+    debugPrint('[MapViewWeb][Flutter→Web] startAvatarRoute result=$result');
   }
 
   /// Detiene el recorrido en curso y deja al avatar en animación idle.
   Future<void> stopAvatarRoute() async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(source: "stopAvatarRoute();");
+    await _waitBridgeReady();
+    await _evalJs("window.stopAvatarRoute?.();");
   }
 
   /// Coloca el avatar instantáneamente en una coordenada de mundo.
   Future<void> setAvatarAtWorld(double x, double y, double z) async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(
-      source: "setAvatarAtWorld($x, $y, $z);",
-    );
+    await _waitBridgeReady();
+    await _evalJs("window.setAvatarAtWorld?.($x, $y, $z);");
   }
 
   /// Oculta el avatar de la escena (p.ej. al cambiar de piso sin destino).
   Future<void> hideAvatar() async {
     if (_webViewController == null) return;
-    await _webViewController!.evaluateJavascript(source: "hideAvatar();");
+    await _waitBridgeReady();
+    await _evalJs("window.hideAvatar?.();");
   }
 
   // ══════════════════════════════════════════════════════════════════════════
