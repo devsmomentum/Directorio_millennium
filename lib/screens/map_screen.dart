@@ -84,6 +84,9 @@ class _MapScreenState extends State<MapScreen> {
   // Tienda seleccionada → para feedback UI de ruta activa
   Store? _selectedStoreForRoute;
 
+  // Calibración del modelo por piso (cargada desde map_calibration en Supabase)
+  Map<String, Map<String, double>> _floorCalibrations = {};
+
   @override
   void initState() {
     super.initState();
@@ -173,6 +176,30 @@ class _MapScreenState extends State<MapScreen> {
       final nodes = await _supabaseService.getMapNodes();
       final edges = await _supabaseService.getMapEdges();
       final polygons = await _supabaseService.getMapPolygons();
+
+      // Cargar calibraciones de todos los pisos desde Supabase.
+      // Requiere la tabla map_calibration (ver SQL exportado por el editor).
+      try {
+        final calibRows = await Supabase.instance.client
+            .from('map_calibration')
+            .select('floor_code, scale, ox, oy, oz, rot_y');
+        final calibMap = <String, Map<String, double>>{};
+        for (final row in calibRows as List<dynamic>) {
+          final code = (row['floor_code'] as String).toUpperCase();
+          calibMap[code] = {
+            'scale': (row['scale'] as num?)?.toDouble() ?? 1.0,
+            'ox': (row['ox'] as num?)?.toDouble() ?? 0.0,
+            'oy': (row['oy'] as num?)?.toDouble() ?? 0.0,
+            'oz': (row['oz'] as num?)?.toDouble() ?? 0.0,
+            'rotY': (row['rot_y'] as num?)?.toDouble() ?? 0.0,
+          };
+        }
+        _floorCalibrations = calibMap;
+        debugPrint('[MapScreen] Calibraciones cargadas: ${calibMap.keys.join(', ')}');
+      } catch (e) {
+        // La tabla puede no existir aún; continuar con calibración por defecto.
+        debugPrint('[MapScreen] map_calibration no disponible: $e');
+      }
 
       final prefs = await SharedPreferences.getInstance();
       final kioskId = prefs.getString('kiosk_id');
@@ -959,8 +986,19 @@ class _MapScreenState extends State<MapScreen> {
                   avatarUrl: _kAvatarModelUrl,
                   onMapLoaded: () {
                     debugPrint('[MapScreen] Mapa del piso $_selectedFloor cargado');
-                    // Si había una tienda seleccionada con ruta pendiente, la
-                    // disparamos aquí (por ejemplo tras cambiar de piso).
+                    // Sincronizar calibración antes de lanzar la ruta.
+                    // Esto garantiza que el modelo GLB esté en la misma posición
+                    // y escala que cuando se capturaron los nodos en el editor.
+                    final calib = _floorCalibrations[_selectedFloor];
+                    if (calib != null) {
+                      _mapViewKey.currentState?.setMapCalibration(
+                        scale: calib['scale']!,
+                        ox: calib['ox']!,
+                        oy: calib['oy']!,
+                        oz: calib['oz']!,
+                        rotY: calib['rotY']!,
+                      );
+                    }
                     if (_selectedStoreForRoute != null) {
                       _runAvatarRouteTo(_selectedStoreForRoute!);
                     } else {

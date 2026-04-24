@@ -1035,8 +1035,12 @@ class MapViewWebState extends State<MapViewWeb> {
 
     function startAvatarRoute(rawWaypoints, opts) {
       const options = opts || {};
-      const fit = fitWaypointsToMap(normalizeWaypoints(rawWaypoints));
-      const waypoints = fit.waypoints || [];
+      // Las coordenadas vienen en world-space de Three.js (el editor las captura
+      // via raycaster con la calibración ya aplicada al modelo; NodeWorldMapping
+      // hace el swap correcto x/y/z_height→x/y/z). NO aplicar fitWaypointsToMap:
+      // esa heurística reescala y recentra coordenadas que ya son correctas,
+      // produciendo doble transformación y desalineación del avatar.
+      const waypoints = normalizeWaypoints(rawWaypoints);
 
       if (waypoints.length === 0) {
         console.log('[MapViewWeb][Avatar] Ruta vacía');
@@ -1044,8 +1048,6 @@ class MapViewWebState extends State<MapViewWeb> {
         return;
       }
 
-      // Debug visual: siempre dibujar markers y centrar cámara, incluso si el
-      // avatar todavía no está listo. Así verificamos alineación de coordenadas.
       drawWaypointMarkers(waypoints);
       if (options.autoCenter !== false) {
         centerCameraOnPoint(waypoints[waypoints.length - 1]);
@@ -1064,6 +1066,13 @@ class MapViewWebState extends State<MapViewWeb> {
         return;
       }
 
+      // Velocidad: si el caller no la especifica, se calcula como el 8% del span
+      // del mapa por segundo (≈ cruzar el mapa en ~12 s), proporcional a la escala
+      // del GLB. Esto evita que un avatar parezca estático en mapas grandes.
+      if (!Number.isFinite(options.speed) && mapBounds) {
+        const sz = mapBounds.getSize(new THREE.Vector3());
+        options.speed = Math.max(sz.x, sz.z, 1.0) * 0.08;
+      }
       avatarState.speed = Number.isFinite(options.speed) ? options.speed : 1.2;
       avatarState.route = waypoints;
       avatarState.segmentIndex = 0;
@@ -1468,6 +1477,30 @@ class MapViewWebState extends State<MapViewWeb> {
       await Future.delayed(const Duration(milliseconds: 120));
     }
     return false;
+  }
+
+  /// Sincroniza la calibración del mapa con los valores usados en el editor.
+  /// Debe llamarse tras cargar el mapa (onMapLoaded) y antes de startAvatarRoute.
+  /// Los valores deben coincidir exactamente con los que se usaron en el editor
+  /// cuando se capturaron los nodos (scale, ox, oy, oz, rotY).
+  Future<void> setMapCalibration({
+    double scale = 1.0,
+    double ox = 0.0,
+    double oy = 0.0,
+    double oz = 0.0,
+    double rotY = 0.0,
+  }) async {
+    if (_webViewController == null) return;
+    await _waitBridgeReady();
+    final calib = jsonEncode({
+      'scale': scale,
+      'ox': ox,
+      'oy': oy,
+      'oz': oz,
+      'rotY': rotY,
+    });
+    await _evalJs("window.setMapCalibration?.($calib);");
+    debugPrint('[MapViewWeb][Flutter→Web] setMapCalibration(scale=$scale, ox=$ox, oy=$oy, oz=$oz, rotY=$rotY)');
   }
 
   /// Mueve la cámara suavemente hacia un punto y órbita específicos.

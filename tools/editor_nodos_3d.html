@@ -1311,6 +1311,20 @@
     document.getElementById('btn-generate-sql').addEventListener('click', () => {
         let sql = `-- Script generado: ${new Date().toISOString()}\n\n`;
 
+        // Exportar calibración del modelo — CRÍTICO para sincronizar el widget.
+        // El widget (map_view_web.dart) debe recibir estos mismos valores via
+        // setMapCalibration() para que los nodos coincidan con el mapa.
+        const c = State.calib;
+        sql += `-- === CALIBRACIÓN DEL MODELO (piso: ${State.currentFloor}) ===\n`;
+        sql += `-- Usar estos valores en map_screen.dart → mapViewKey.currentState?.setMapCalibration(\n`;
+        sql += `--   scale: ${c.scale}, ox: ${c.ox}, oy: ${c.oy}, oz: ${c.oz}, rotY: ${c.rotY}\n`;
+        sql += `-- );\n`;
+        sql += `INSERT INTO public.map_calibration (floor_code, scale, ox, oy, oz, rot_y)\n`;
+        sql += `VALUES ('${State.currentFloor}', ${c.scale}, ${c.ox}, ${c.oy}, ${c.oz}, ${c.rotY})\n`;
+        sql += `ON CONFLICT (floor_code) DO UPDATE SET\n`;
+        sql += `  scale = EXCLUDED.scale, ox = EXCLUDED.ox, oy = EXCLUDED.oy,\n`;
+        sql += `  oz = EXCLUDED.oz, rot_y = EXCLUDED.rot_y;\n\n`;
+
         const nodesToSync = Array.from(State.nodes.values()).filter(n => n._isNew || n._isModified);
         if (nodesToSync.length > 0) {
             sql += `-- === UPSERT MAP NODES ===\n`;
