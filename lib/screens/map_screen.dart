@@ -84,6 +84,12 @@ class _MapScreenState extends State<MapScreen> {
   // Tienda seleccionada → para feedback UI de ruta activa
   Store? _selectedStoreForRoute;
 
+  // Flag para evitar loop en Flutter Web: `startAvatarRoute` recarga el HTML
+  // y `onMapLoaded` vuelve a dispararse; sin este flag, llamaría de nuevo a
+  // `_runAvatarRouteTo` → otra recarga → loop infinito. Se marca true cuando
+  // la ruta ya fue enviada al WebView, y se resetea en cada nueva selección.
+  bool _routeDispatched = false;
+
   // Calibración del modelo por piso (cargada desde map_calibration en Supabase)
   Map<String, Map<String, double>> _floorCalibrations = {};
 
@@ -109,6 +115,7 @@ class _MapScreenState extends State<MapScreen> {
   void _onKioskChanged() {
     debugPrint('[MapScreen] KioskBus → recargando datos por cambio de kiosco');
     _selectedStoreForRoute = null;
+    _routeDispatched = false;
     _mapViewKey.currentState?.stopAvatarRoute();
     _loadData(isSilent: true);
   }
@@ -518,6 +525,7 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       _selectedStoreForRoute = store;
+      _routeDispatched = false; // nueva selección → permitir dispatch
     });
 
     if (targetFloorName != null && targetFloorName != _selectedFloor) {
@@ -592,15 +600,12 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    // Centrar cámara sobre el destino para que el usuario vea la animación.
-    final last = route.waypoints.last;
+    // La cámara la posiciona el JS (fitCameraToRoute) para encuadrar el
+    // recorrido completo desde el kiosco hasta la tienda.
     final mapView = _mapViewKey.currentState;
-    mapView?.centerOnMapPoint(
-      (last['x'] as num).toDouble(),
-      (last['y'] as num).toDouble(),
-      (last['z'] as num).toDouble(),
-    );
-
+    // Marcar ANTES del envío: en web la recarga de HTML puede disparar
+    // onMapLoaded muy rápido y llegar antes de que esta línea se ejecute.
+    _routeDispatched = true;
     mapView?.startAvatarRoute(route.waypoints);
   }
 
@@ -999,9 +1004,14 @@ class _MapScreenState extends State<MapScreen> {
                         rotY: calib['rotY']!,
                       );
                     }
-                    if (_selectedStoreForRoute != null) {
+                    // En Flutter Web, startAvatarRoute recarga el HTML y
+                    // onMapLoaded vuelve a dispararse. Sin este check,
+                    // llamaríamos _runAvatarRouteTo otra vez → loop infinito.
+                    // El bootstrap embebido ya ejecuta la ruta; no hacer nada
+                    // más si ya fue despachada.
+                    if (_selectedStoreForRoute != null && !_routeDispatched) {
                       _runAvatarRouteTo(_selectedStoreForRoute!);
-                    } else {
+                    } else if (_selectedStoreForRoute == null) {
                       _placeAvatarAtKiosk();
                     }
                   },

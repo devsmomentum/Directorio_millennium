@@ -386,6 +386,142 @@ class MapViewWebState extends State<MapViewWeb> {
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Path trail — guía visual animada en el piso del mapa
+    // ─────────────────────────────────────────────────────────────────
+    const trailState = {
+      line: null,        // THREE.Line (línea punteada)
+      lineMat: null,     // LineDashedMaterial
+      dots: [],          // Meshes de puntos intermedios
+      destDot: null,     // Mesh del marcador de destino
+      time: 0,           // Acumulador para animaciones de pulso
+    };
+
+    function clearPathTrail() {
+      if (trailState.line) {
+        scene.remove(trailState.line);
+        if (trailState.line.geometry) trailState.line.geometry.dispose();
+        if (trailState.lineMat) trailState.lineMat.dispose();
+        trailState.line = null;
+        trailState.lineMat = null;
+      }
+      if (trailState.destDot) {
+        scene.remove(trailState.destDot);
+        if (trailState.destDot.geometry) trailState.destDot.geometry.dispose();
+        if (trailState.destDot.material) trailState.destDot.material.dispose();
+        trailState.destDot = null;
+      }
+      for (const d of trailState.dots) {
+        scene.remove(d);
+        if (d.geometry) d.geometry.dispose();
+        if (d.material) d.material.dispose();
+      }
+      trailState.dots = [];
+      trailState.time = 0;
+    }
+
+    function spawnPathTrail(waypoints) {
+      clearPathTrail();
+      if (!waypoints || waypoints.length < 2) return;
+
+      // Offset mínimo sobre el piso para evitar z-fighting.
+      // depthTest:false igual garantiza visibilidad, pero el offset
+      // mantiene el trail visualmente "pegado" al suelo desde cualquier ángulo.
+      const Y_FLOOR = 0.028;
+
+      // ── Línea punteada animada (marching-ants) ──────────────────────
+      const pts = waypoints.map(function(w) {
+        return new THREE.Vector3(w.x, w.y + Y_FLOOR, w.z);
+      });
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      lineGeo.computeLineDistances(); // obligatorio para LineDashedMaterial
+      const lineMat = new THREE.LineDashedMaterial({
+        color: 0xFF007A,
+        dashSize: 0.20,
+        gapSize: 0.12,
+        transparent: true,
+        opacity: 0.82,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const pathLine = new THREE.Line(lineGeo, lineMat);
+      pathLine.renderOrder = 995;
+      pathLine.frustumCulled = false;
+      scene.add(pathLine);
+      trailState.line = pathLine;
+      trailState.lineMat = lineMat;
+
+      // ── Puntos intermedios (máx. 25 para no saturar Sunmi) ──────────
+      const dotBaseGeo = new THREE.CircleGeometry(0.065, 10);
+      const MAX_DOTS = 25;
+      const totalIntermediate = waypoints.length - 2; // excluir inicio y destino
+      const step = totalIntermediate <= MAX_DOTS
+        ? 1
+        : Math.ceil(totalIntermediate / MAX_DOTS);
+
+      for (let i = 1; i < waypoints.length - 1; i += step) {
+        const w = waypoints[i];
+        const dot = new THREE.Mesh(
+          dotBaseGeo.clone(),
+          new THREE.MeshBasicMaterial({
+            color: 0xFF007A,
+            transparent: true,
+            opacity: 0.60,
+            depthTest: false,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        dot.position.set(w.x, w.y + Y_FLOOR, w.z);
+        dot.rotation.x = -Math.PI / 2; // plano horizontal (XZ)
+        dot.renderOrder = 996;
+        dot.frustumCulled = false;
+        scene.add(dot);
+        trailState.dots.push(dot);
+      }
+
+      // ── Marcador de destino (círculo blanco + halo rosa) ────────────
+      const dest = waypoints[waypoints.length - 1];
+      const destDot = new THREE.Mesh(
+        new THREE.CircleGeometry(0.22, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0xFFFFFF,
+          transparent: true,
+          opacity: 0.95,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      destDot.position.set(dest.x, dest.y + Y_FLOOR, dest.z);
+      destDot.rotation.x = -Math.PI / 2;
+      destDot.renderOrder = 999;
+      destDot.frustumCulled = false;
+      scene.add(destDot);
+      trailState.destDot = destDot;
+
+      // Halo exterior rosa alrededor del destino
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.23, 0.32, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0xFF007A,
+          transparent: true,
+          opacity: 0.55,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      halo.position.set(dest.x, dest.y + Y_FLOOR, dest.z);
+      halo.rotation.x = -Math.PI / 2;
+      halo.renderOrder = 998;
+      halo.frustumCulled = false;
+      scene.add(halo);
+      trailState.dots.push(halo); // incluir en cleanup
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+
     function computeXZBounds(points) {
       if (!points || points.length === 0) return null;
       let minX = points[0].x, maxX = points[0].x;
@@ -810,49 +946,56 @@ class MapViewWebState extends State<MapViewWeb> {
         });
         if (found) return found;
       }
-      // Partial match como último recurso
+      // Partial match
       for (const name of preferredNames) {
         const found = clips.find(function(c) {
           return c.name && c.name.toLowerCase().indexOf(name.toLowerCase()) !== -1;
         });
         if (found) return found;
       }
-      return null;
+      // Fallback absoluto: primer clip disponible (evita T-pose cuando los nombres no coinciden)
+      return clips[0] || null;
     }
 
-    function playAction(clip, { loop = THREE.LoopRepeat, fadeIn = 0.25 } = {}) {
-      if (!clip || !avatarState.mixer) return null;
+    // playAction: núcleo del sistema de animación.
+    // Política: cambio inmediato sin crossfade para que la animación sea
+    // perceptible al instante. En un kiosco la respuesta instantánea
+    // prima sobre la transición suave.
+    function playAction(clip, loop) {
+      if (!clip || !avatarState.mixer) return;
+      const loopMode = (loop !== undefined) ? loop : THREE.LoopRepeat;
       const action = avatarState.mixer.clipAction(clip);
-      action.enabled = true;
-      action.setLoop(loop, Infinity);
-      action.clampWhenFinished = false;
 
-      if (avatarState.activeAction && avatarState.activeAction !== action) {
-        action.reset().fadeIn(fadeIn).play();
-        avatarState.activeAction.fadeOut(fadeIn);
-      } else {
-        action.reset().play();
+      action.setLoop(loopMode, Infinity);
+      action.clampWhenFinished = false;
+      action.enabled = true;
+
+      // Guard: mismo clip ya corriendo sin pausa → no hacer reset (evita salto a t=0)
+      if (action === avatarState.activeAction && action.isRunning() && !action.paused) {
+        return;
       }
+
+      // Detener acción previa inmediatamente (sin fade) para evitar conflictos de weight
+      if (avatarState.activeAction && avatarState.activeAction !== action) {
+        avatarState.activeAction.stop();
+      }
+
       avatarState.activeAction = action;
-      return action;
+      action.reset().play();
     }
 
     function playWalk() {
-      if (avatarState.clips.walk) {
-        playAction(avatarState.clips.walk);
-      } else if (avatarState.clips.idle) {
-        playAction(avatarState.clips.idle);
-      }
+      const clip = avatarState.clips.walk || avatarState.clips.idle;
+      if (clip) playAction(clip);
     }
 
     function playIdle() {
-      if (avatarState.clips.idle) {
-        playAction(avatarState.clips.idle);
-      } else if (avatarState.clips.walk) {
-        // Sin idle dedicado: pausamos la única animación disponible
-        if (avatarState.activeAction) {
-          avatarState.activeAction.paused = true;
-        }
+      const idleClip = avatarState.clips.idle;
+      if (idleClip && idleClip !== avatarState.clips.walk) {
+        playAction(idleClip);
+      } else if (avatarState.activeAction) {
+        // Sin clip idle dedicado: pausar en el frame actual
+        avatarState.activeAction.paused = true;
       }
     }
 
@@ -929,11 +1072,12 @@ class MapViewWebState extends State<MapViewWeb> {
           let finalScale = wantsScale;
           if (!Number.isFinite(finalScale) || finalScale <= 0) {
             // Escala automática basada en el tamaño del mapa (si está disponible).
-            // Buscamos que la altura del avatar sea ~3.5% del span X/Z del mapa.
+            // Objetivo: ~1.7 unidades de altura (escala humana) dentro del mall.
+            // Usamos 1.8% del span mayor X/Z como referencia, clampado a [0.4, 1.8].
             if (mapBounds && !mapBounds.isEmpty()) {
               const mapSize = mapBounds.getSize(new THREE.Vector3());
               const mapSpan = Math.max(mapSize.x, mapSize.z, 1.0);
-              const desiredHeight = THREE.MathUtils.clamp(mapSpan * 0.035, 0.7, 2.2);
+              const desiredHeight = THREE.MathUtils.clamp(mapSpan * 0.018, 0.4, 1.8);
               finalScale = desiredHeight / avatarHeight0;
             } else {
               finalScale = avatarState.scale || 1.0;
@@ -1033,6 +1177,44 @@ class MapViewWebState extends State<MapViewWeb> {
       return distance / Math.max(speed, 0.01);
     }
 
+    // Encuadra la cámara para ver el recorrido completo (kiosco → tienda).
+    // Calcula el bounding box XZ de todos los waypoints y posiciona la cámara
+    // a la altura/distancia óptima para que el usuario vea todo el trayecto.
+    function fitCameraToRoute(waypoints) {
+      if (!waypoints || waypoints.length === 0 || !mapBounds) return;
+
+      let minX = Infinity, maxX = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      for (const w of waypoints) {
+        if (w.x < minX) minX = w.x;
+        if (w.x > maxX) maxX = w.x;
+        if (w.z < minZ) minZ = w.z;
+        if (w.z > maxZ) maxZ = w.z;
+      }
+
+      const cx = (minX + maxX) * 0.5;
+      const cz = (minZ + maxZ) * 0.5;
+      const spanX = Math.max(maxX - minX, 1.5);
+      const spanZ = Math.max(maxZ - minZ, 1.5);
+      const span  = Math.max(spanX, spanZ);
+
+      // Distancia de cámara: suficiente para ver el span con margen (factor 0.6),
+      // siempre dentro de los límites permitidos por el mapa.
+      const dist = THREE.MathUtils.clamp(span * 0.60, minDistance, maxDistance * 0.92);
+
+      const nextTarget = new THREE.Vector3(cx, mapCenter.y, cz);
+      // Posición: directamente sobre el centro, inclinada ~14° hacia adelante
+      const nextCamPos = new THREE.Vector3(cx, mapCenter.y + dist, cz + dist * 0.24);
+
+      startCameraTransition(nextCamPos, nextTarget);
+
+      console.log(
+        '[MapViewWeb][Camera] fitRoute: span=' + span.toFixed(2)
+        + ' dist=' + dist.toFixed(2)
+        + ' cx=' + cx.toFixed(2) + ' cz=' + cz.toFixed(2)
+      );
+    }
+
     function startAvatarRoute(rawWaypoints, opts) {
       const options = opts || {};
       // Las coordenadas vienen en world-space de Three.js (el editor las captura
@@ -1048,13 +1230,19 @@ class MapViewWebState extends State<MapViewWeb> {
         return;
       }
 
-      drawWaypointMarkers(waypoints);
+      // Trail y cámara: aislados en try-catch para que cualquier error interno
+      // NO impida guardar pendingRoute ni ejecutar playWalk().
+      try {
+        spawnPathTrail(waypoints);
+      } catch (trailErr) {
+        console.log('[MapViewWeb][Trail] Error al crear trail: ' + String(trailErr));
+      }
       if (options.autoCenter !== false) {
-        centerCameraOnPoint(waypoints[waypoints.length - 1]);
+        try { fitCameraToRoute(waypoints); } catch (_) {}
       }
       console.log(
-        '[MapViewWeb][Avatar][Debug] markers=' + waypoints.length
-        + ' last=(' + waypoints[waypoints.length - 1].x.toFixed(2)
+        '[MapViewWeb][Avatar][Route] wp=' + waypoints.length
+        + ' dest=(' + waypoints[waypoints.length - 1].x.toFixed(2)
         + ', ' + waypoints[waypoints.length - 1].y.toFixed(2)
         + ', ' + waypoints[waypoints.length - 1].z.toFixed(2) + ')'
       );
@@ -1113,7 +1301,8 @@ class MapViewWebState extends State<MapViewWeb> {
       avatarState.segmentIndex = 0;
       avatarState.segmentProgress = 0.0;
       avatarState.isWalking = false;
-      clearWaypointMarkers();
+      clearPathTrail();
+      clearWaypointMarkers(); // limpia cualquier esfera de debug residual
       if (avatarState.ready) {
         playIdle();
       }
@@ -1132,6 +1321,7 @@ class MapViewWebState extends State<MapViewWeb> {
       if (avatarState.root) {
         avatarState.root.visible = false;
       }
+      clearPathTrail();
       stopAvatarRoute();
     }
 
@@ -1139,6 +1329,21 @@ class MapViewWebState extends State<MapViewWeb> {
       if (avatarState.mixer) {
         avatarState.mixer.update(dt);
       }
+
+      // ── Animar trail de pasos ────────────────────────────────────────
+      if (trailState.lineMat) {
+        trailState.time += dt;
+        // Marching-ants: desplazar los guiones en la dirección del avance
+        trailState.lineMat.dashOffset -= dt * 0.75;
+        // Pulso suave de la línea (0.62 → 0.88 → 0.62, período ~2.5 s)
+        trailState.lineMat.opacity = 0.62 + 0.26 * Math.sin(trailState.time * 2.5);
+        // Pulso del marcador de destino (más rápido, más llamativo)
+        if (trailState.destDot) {
+          trailState.destDot.material.opacity =
+            0.68 + 0.27 * Math.abs(Math.sin(trailState.time * 4.2));
+        }
+      }
+
       if (!avatarState.ready || !avatarState.root) return;
 
       // Rotación suave hacia el próximo waypoint
@@ -1167,6 +1372,7 @@ class MapViewWebState extends State<MapViewWeb> {
           placeAvatarAt(route[route.length - 1]);
           avatarState.isWalking = false;
           avatarState.segmentProgress = 0;
+          clearPathTrail();
           playIdle();
           notifyFlutter('onAvatarArrived', {
             waypoints: route.length,
@@ -1326,7 +1532,8 @@ class MapViewWebState extends State<MapViewWeb> {
     function animate() {
       requestAnimationFrame(animate);
 
-      const dt = clock.getDelta();
+      // Clamp delta para evitar saltos si la pestaña estuvo en background
+      const dt = Math.min(clock.getDelta(), 0.1);
 
       // Lógica de transición suave (Ease-Out Cubic)
       if (isCameraTransitioning) {
@@ -1533,12 +1740,6 @@ class MapViewWebState extends State<MapViewWeb> {
   /// Centra la cámara sobre un punto de mundo 3D (coordenadas three.js).
   Future<void> centerOnMapPoint(double x, double y, double z) async {
     if (_webViewController == null) return;
-    if (kIsWeb) {
-      _webCommandBootstrap = "window.centerOnMapPoint?.($x,$y,$z);";
-      await _reloadHtmlIfPossible();
-      debugPrint('[MapViewWeb][Flutter→Web][WEB] centerOnMapPoint via reload');
-      return;
-    }
     await _waitBridgeReady();
     final result = await _evalJs("(function(){"
         "try{"
@@ -1546,12 +1747,11 @@ class MapViewWebState extends State<MapViewWeb> {
         "window.centerOnMapPoint($x,$y,$z);"
         "return 'ok';"
         "}catch(e){"
-        "console.log('[MapViewWeb][Bridge] centerOnMapPoint error', e && (e.stack||e.message||e));"
+        "console.log('[MapViewWeb][Bridge] centerOnMapPoint error', String(e));"
         "return 'error';"
         "}"
         "})()");
-    debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint($x, $y, $z)');
-    debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint result=$result');
+    debugPrint('[MapViewWeb][Flutter→Web] centerOnMapPoint($x, $y, $z) → $result');
   }
 
   /// Carga un modelo de avatar .glb y lo añade DENTRO de la escena three.js.
@@ -1575,32 +1775,32 @@ class MapViewWebState extends State<MapViewWeb> {
     double speed = 1.2,
   }) async {
     if (_webViewController == null) return;
-    if (kIsWeb) {
-      final payload = jsonEncode(waypoints);
-      final opts = jsonEncode({'speed': speed});
-      _webCommandBootstrap =
-          "window.startAvatarRoute?.($payload,$opts);";
-      await _reloadHtmlIfPossible();
-      debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute via reload');
-      return;
-    }
-    await _waitBridgeReady();
     final payload = jsonEncode(waypoints);
     final opts = jsonEncode({'speed': speed});
+
+    // Flutter Web: evaluateJavascript con flutter_inappwebview_web NO ejecuta
+    // JS (retorna null sin side-effects). Único camino fiable: embeber el
+    // comando en el HTML vía bootstrap y recargar. El loop infinito que
+    // causaba esto antes se previene con `_routeDispatched` en MapScreen.
+    if (kIsWeb) {
+      _webCommandBootstrap = "window.startAvatarRoute?.($payload,$opts);";
+      await _reloadHtmlIfPossible();
+      debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute bootstrap (${waypoints.length} wp)');
+      return;
+    }
+
+    await _waitBridgeReady();
     final result = await _evalJs("(function(){"
         "try{"
         "if(!window.startAvatarRoute){console.log('[MapViewWeb][Bridge] startAvatarRoute undefined'); return 'missing';}"
         "window.startAvatarRoute($payload,$opts);"
         "return 'ok';"
         "}catch(e){"
-        "console.log('[MapViewWeb][Bridge] startAvatarRoute error', e && (e.stack||e.message||e));"
+        "console.log('[MapViewWeb][Bridge] startAvatarRoute error', String(e));"
         "return 'error';"
         "}"
         "})()");
-    debugPrint(
-      '[MapViewWeb][Flutter→Web] startAvatarRoute(${waypoints.length} wp, $speed u/s)',
-    );
-    debugPrint('[MapViewWeb][Flutter→Web] startAvatarRoute result=$result');
+    debugPrint('[MapViewWeb][Flutter→Web] startAvatarRoute(${waypoints.length} wp) → $result');
   }
 
   /// Detiene el recorrido en curso y deja al avatar en animación idle.
