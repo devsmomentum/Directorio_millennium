@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import 'kiosk_selector.dart';
+import 'emergency_button.dart';
 
 /// Header global persistente para todas las pantallas del kiosco.
 ///
@@ -202,6 +205,9 @@ class _AppHeaderState extends State<AppHeader> {
                               ),
                             ],
                           ),
+                          const SizedBox(width: 16),
+                          // Botón de emergencia
+                          const EmergencyButton(size: 44),
                         ],
                       ),
                     ),

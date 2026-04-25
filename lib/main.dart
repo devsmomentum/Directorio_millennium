@@ -11,6 +11,7 @@ import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'screens/home_screen.dart';
 import 'theme_manager.dart';
 import 'services/telemetry_service.dart';
+import 'widgets/emergency_wrapper.dart';
 
 Future<void> main() async {
   // En release, si algo falla antes de runApp, la app suele quedarse “en blanco”.
@@ -102,6 +103,11 @@ class MillenniumKioskApp extends StatelessWidget {
           displayColor: theme.text,
         ),
       ),
+      builder: (context, child) {
+        return EmergencyWrapper(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const HomeScreen(),
     );
   }

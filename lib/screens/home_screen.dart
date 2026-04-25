@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'main_layout.dart';
+import '../widgets/emergency_button.dart';
 import '../services/ad_cache_manager.dart';
 import '../theme/app_theme.dart';
 
@@ -150,7 +153,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Logo removido: ahora se muestra en el AppHeader global.
+          // 3. LOGO MILLENNIUM (Arriba Derecha)
+          Positioned(
+            top: 20,
+            right: 25,
+            child: Image.network(
+              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_millennium.png',
+              height: 100,
+              fit: BoxFit.contain,
+            ),
+          ),
 
           // 4. Contenido Principal
           SafeArea(
@@ -286,6 +298,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
+        // Botón de emergencia
+        const SizedBox(width: 15),
+        EmergencyButton(size: targetHeight),
       ],
     );
   }

@@ -92,7 +92,7 @@ CREATE TABLE public.kiosks (
   created_at timestamp with time zone DEFAULT now(),
   last_ping timestamp with time zone DEFAULT now(),
   is_emergency_active boolean NOT NULL DEFAULT false,
-  floor text,
+  floor_level text,
   CONSTRAINT kiosks_pkey PRIMARY KEY (id),
   CONSTRAINT kiosks_node_id_fkey FOREIGN KEY (node_id) REFERENCES public.map_nodes(id)
 );
@@ -108,7 +108,7 @@ CREATE TABLE public.map_edges (
 );
 CREATE TABLE public.map_nodes (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  floor_level integer NOT NULL,
+  floor_level text NOT NULL,
   x double precision NOT NULL,
   y double precision NOT NULL,
   node_type character varying NOT NULL,
@@ -121,7 +121,7 @@ CREATE TABLE public.map_polygons (
   name text,
   color text DEFAULT '#4466ff'::text,
   points jsonb,
-  floor_level integer,
+  floor_level text,
   store_id uuid,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT map_polygons_pkey PRIMARY KEY (id),
@@ -132,7 +132,7 @@ CREATE TABLE public.map_routes (
   name text,
   color text DEFAULT '#22d3ee'::text,
   points jsonb,
-  floor_level integer,
+  floor_level text,
   origin_type text,
   origin_id uuid,
   dest_type text,
