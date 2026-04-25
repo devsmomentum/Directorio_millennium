@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/analytics_service.dart'; // 🚀 Importamos el rastreador
 import '../services/currency_service.dart';
 import '../widgets/screen_ad_banners.dart';
+import '../theme/app_theme.dart';
 
 class ServiceModel {
   final String id;
@@ -346,105 +347,526 @@ class _ServicesScreenState extends State<ServicesScreen> {
     );
   }
 
+  void _showComingSoonModal() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Container(
+          width: 400,
+          padding: const EdgeInsets.all(30),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(
+              color: AppColors.primary.withOpacity(0.5),
+              width: 2,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.hourglass_empty_rounded,
+                color: AppColors.primary,
+                size: 60,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'PRÓXIMAMENTE',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Estamos trabajando para habilitar este servicio muy pronto.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textSecondaryMuted,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 30),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'ENTENDIDO',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCinesCard(ServiceModel srv) {
+    return GestureDetector(
+      onTap: _showComingSoonModal,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(25),
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF007A), Color(0xFFFF5E00)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.theaters, color: AppColors.textPrimary, size: 24),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'CINES UNIDOS',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Compra de Entradas y Combos',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.chevron_right, color: AppColors.textPrimary, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '¿A qué hora es la función? Compra aquí tus boletos en segundos',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.chipBackground,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.subtleBorder),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.touch_app, color: AppColors.textPrimary, size: 14),
+                  SizedBox(width: 6),
+                  Text(
+                    'TOCA PARA ACCEDER',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEstacionamientoCard(ServiceModel srv) {
+    return GestureDetector(
+      onTap: _showComingSoonModal,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.secondary.withOpacity(0.5), width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.secondary.withOpacity(0.1),
+              blurRadius: 15,
+              spreadRadius: -5,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.directions_car, color: AppColors.secondary, size: 24),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'ESTACIONAMIENTO',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Pago de Ticket de Parking',
+                        style: TextStyle(
+                          color: AppColors.textSecondaryMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.chevron_right, color: AppColors.textSecondaryMuted, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Ingresa tu placa y calcula tu tarifa al instante',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.chipBackground,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.touch_app, color: AppColors.secondary, size: 14),
+                  SizedBox(width: 6),
+                  Text(
+                    'TOCA PARA ACCEDER',
+                    style: TextStyle(
+                      color: AppColors.secondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecargasCard(ServiceModel srv) {
+    return GestureDetector(
+      onTap: _showComingSoonModal,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.primary.withOpacity(0.5), width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.1),
+              blurRadius: 15,
+              spreadRadius: -5,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.flash_on, color: AppColors.warning, size: 24),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'RECARGAS Y SERVICIOS',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'CORPOELEC - CANTV - Hidrocapital - Recargas',
+                        style: TextStyle(
+                          color: AppColors.textSecondaryMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.chipBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.chevron_right, color: AppColors.textSecondaryMuted, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Paga tus servicios y realiza recargas telefónicas aquí mismo',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.chipBackground,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.touch_app, color: AppColors.primary, size: 14),
+                  SizedBox(width: 6),
+                  Text(
+                    'TOCA PARA ACCEDER',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomPaymentSection() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.chipBackground,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.contactless, color: AppColors.secondary, size: 22),
+                SizedBox(height: 2),
+                Text('NFC', style: TextStyle(color: AppColors.secondary, fontSize: 9, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.chipBackground,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.qr_code_scanner, color: AppColors.primary, size: 22),
+                SizedBox(height: 2),
+                Text('QR', style: TextStyle(color: AppColors.primary, fontSize: 9, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Pague aquí con QR o NFC',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Acerque su dispositivo o escanee el código QR en la ranura de pago para finalizar su transacción de forma rápida y segura',
+                  style: TextStyle(
+                    color: AppColors.textSecondaryMuted,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cinesService = _services.firstWhere(
+      (s) => s.title.toLowerCase().contains('cine') || s.provider.toLowerCase().contains('cine'),
+      orElse: () => ServiceModel(id: 'cine', title: 'Cines Unidos', provider: 'Cines Unidos', description: 'Compra de Entradas y Combos', imageUrl: '', isActive: true),
+    );
+    final estService = _services.firstWhere(
+      (s) => s.title.toLowerCase().contains('estacionamiento') || s.provider.toLowerCase().contains('estacionamiento'),
+      orElse: () => ServiceModel(id: 'estacionamiento', title: 'Estacionamiento', provider: 'Parking', description: 'Pago de Ticket de Parking', imageUrl: '', isActive: true),
+    );
+    final recargasService = _services.firstWhere(
+      (s) => s.title.toLowerCase().contains('recarga') || s.provider.toLowerCase().contains('recarga') || s.title.toLowerCase().contains('servicio'),
+      orElse: () => ServiceModel(id: 'recargas', title: 'Recargas y Servicios', provider: 'Servicios', description: 'CORPOELEC - CANTV - Hidrocapital - Recargas', imageUrl: '', isActive: true),
+    );
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: AppColors.background,
       body: ScreenAdBanners(
         showTop: false,
         showBottom: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFFF007A),
-                      ),
-                    )
-                  : _services.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No hay servicios disponibles por ahora.',
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                    )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(30),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 30,
-                            mainAxisSpacing: 30,
-                            childAspectRatio: 1.0,
-                          ),
-                      itemCount: _services.length,
-                      itemBuilder: (context, index) {
-                        final srv = _services[index];
-                        return GestureDetector(
-                          onTap: () => _showServiceModal(srv),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1A1A1A),
-                              borderRadius: BorderRadius.circular(25),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.05),
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 70,
-                                  height: 70,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(15),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(15),
-                                    child: Image.network(
-                                      srv.imageUrl,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.image_not_supported,
-                                        color: Colors.black26,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 15),
-                                Text(
-                                  srv.provider,
-                                  style: const TextStyle(
-                                    color: Color(0xFFFF007A),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  child: Text(
-                                    srv.title,
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 0.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 15),
+                const Text(
+                  '¿En qué te podemos ayudar?',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Selecciona un módulo para comenzar',
+                  style: TextStyle(
+                    color: AppColors.textSecondaryMuted,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Expanded(
+                  child: ListView(
+                    physics: const BouncingScrollPhysics(),
+                    children: [
+                      _buildCinesCard(cinesService),
+                      const SizedBox(height: 10),
+                      _buildEstacionamientoCard(estService),
+                      const SizedBox(height: 10),
+                      _buildRecargasCard(recargasService),
+                      const SizedBox(height: 15),
+                      // _buildBottomPaymentSection(),
+                      // const SizedBox(height: 15),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
