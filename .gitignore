@@ -74,3 +74,5 @@ flutter_*.png
 
 .env
 tools/config.js
+
+/documents

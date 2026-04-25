@@ -454,7 +454,7 @@ class MapViewWebState extends State<MapViewWeb> {
       if (!waypointMarkers || waypointMarkers.length === 0) return;
       for (const m of waypointMarkers) {
         scene.remove(m);
-        if (m.geometry) m.geometry.dispose?.();
+        if (m.geometry && m.geometry.dispose) m.geometry.dispose();
       }
       waypointMarkers = [];
     }
@@ -926,9 +926,9 @@ class MapViewWebState extends State<MapViewWeb> {
 
     const renderer = new THREE.WebGLRenderer({
       canvas: canvas,
-      antialias: true,
+      antialias: false,
       alpha: true,
-      powerPreference: 'high-performance',
+      powerPreference: 'default',
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight, false);
@@ -1294,12 +1294,12 @@ class MapViewWebState extends State<MapViewWeb> {
       if (avatarState.root) {
         scene.remove(avatarState.root);
         avatarState.root.traverse(function(o) {
-          if (o.geometry) o.geometry.dispose?.();
+          if (o.geometry && o.geometry.dispose) o.geometry.dispose();
           if (o.material) {
             if (Array.isArray(o.material)) {
-              o.material.forEach(function(m) { m.dispose?.(); });
+              o.material.forEach(function(m) { if (m.dispose) m.dispose(); });
             } else {
-              o.material.dispose?.();
+              if (o.material.dispose) o.material.dispose();
             }
           }
         });
@@ -1330,7 +1330,7 @@ class MapViewWebState extends State<MapViewWeb> {
             if (obj.material) {
               const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
               mats.forEach(function(m) {
-                m.transparent = m.transparent ?? false;
+                m.transparent = (m.transparent !== undefined && m.transparent !== null) ? m.transparent : false;
                 m.needsUpdate = true;
               });
             }
@@ -1920,19 +1920,19 @@ class MapViewWebState extends State<MapViewWeb> {
           if (Array.isArray(obj.material)) {
             obj.material.forEach(function(mat) {
               if (mat && 'roughness' in mat) {
-                mat.roughness = Math.max(mat.roughness ?? 1.0, 0.65);
+                mat.roughness = Math.max(mat.roughness !== undefined ? mat.roughness : 1.0, 0.65);
               }
               if (mat && 'metalness' in mat) {
-                mat.metalness = Math.min(mat.metalness ?? 0.0, 0.25);
+                mat.metalness = Math.min(mat.metalness !== undefined ? mat.metalness : 0.0, 0.25);
               }
               if (mat) mat.needsUpdate = true;
             });
           } else if (obj.material) {
             if ('roughness' in obj.material) {
-              obj.material.roughness = Math.max(obj.material.roughness ?? 1.0, 0.65);
+              obj.material.roughness = Math.max(obj.material.roughness !== undefined ? obj.material.roughness : 1.0, 0.65);
             }
             if ('metalness' in obj.material) {
-              obj.material.metalness = Math.min(obj.material.metalness ?? 0.0, 0.25);
+              obj.material.metalness = Math.min(obj.material.metalness !== undefined ? obj.material.metalness : 0.0, 0.25);
             }
             obj.material.needsUpdate = true;
           }
@@ -2209,7 +2209,7 @@ class MapViewWebState extends State<MapViewWeb> {
       'oz': oz,
       'rotY': rotY,
     });
-    await _evalJs("window.setMapCalibration?.($calib);");
+    await _evalJs("window.setMapCalibration && window.setMapCalibration($calib);");
     debugPrint('[MapViewWeb][Flutter→Web] setMapCalibration(scale=$scale, ox=$ox, oy=$oy, oz=$oz, rotY=$rotY)');
   }
 
@@ -2220,7 +2220,7 @@ class MapViewWebState extends State<MapViewWeb> {
     if (_webViewController == null) return;
     await _waitBridgeReady();
     await _evalJs(
-      "window.updateCamera?.('${target.replaceAll("'", "\\'")}', '${orbit.replaceAll("'", "\\'")}');",
+      "window.updateCamera && window.updateCamera('${target.replaceAll("'", "\\'")}', '${orbit.replaceAll("'", "\\'")}');",
     );
     debugPrint('[MapViewWeb][Flutter→Web] updateCamera($target, $orbit)');
   }
@@ -2229,14 +2229,14 @@ class MapViewWebState extends State<MapViewWeb> {
   Future<void> resetCamera() async {
     if (_webViewController == null) return;
     await _waitBridgeReady();
-    await _evalJs("window.resetCamera?.();");
+    await _evalJs("window.resetCamera && window.resetCamera();");
   }
 
   /// Centra el mapa con una vista superior y cercana.
   Future<void> centerTopView() async {
     if (_webViewController == null) return;
     await _waitBridgeReady();
-    await _evalJs("window.centerTopView?.();");
+    await _evalJs("window.centerTopView && window.centerTopView();");
     debugPrint('[MapViewWeb][Flutter→Web] centerTopView()');
   }
 
@@ -2264,7 +2264,7 @@ class MapViewWebState extends State<MapViewWeb> {
     if (_webViewController == null) return;
     await _waitBridgeReady();
     final optsJson = jsonEncode(opts ?? const <String, dynamic>{});
-    await _evalJs("window.loadAvatar?.(${jsonEncode(avatarSrc)}, $optsJson);");
+    await _evalJs("window.loadAvatar && window.loadAvatar(${jsonEncode(avatarSrc)}, $optsJson);");
     debugPrint('[MapViewWeb][Flutter→Web] loadAvatar($avatarSrc)');
   }
 
@@ -2296,7 +2296,7 @@ class MapViewWebState extends State<MapViewWeb> {
         debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute postMessage (${waypoints.length} wp)');
         return;
       }
-      _webCommandBootstrap = "window.startAvatarRoute?.($payload,$opts);";
+      _webCommandBootstrap = "window.startAvatarRoute && window.startAvatarRoute($payload,$opts);";
       await _reloadHtmlIfPossible();
       debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute bootstrap (${waypoints.length} wp)');
       return;
@@ -2321,7 +2321,7 @@ class MapViewWebState extends State<MapViewWeb> {
     if (_webViewController == null) return;
     if (kIsWeb && _postCommandToIframe({'cmd': 'stopAvatarRoute'})) return;
     await _waitBridgeReady();
-    await _evalJs("window.stopAvatarRoute?.();");
+    await _evalJs("window.stopAvatarRoute && window.stopAvatarRoute();");
   }
 
   /// Coloca el avatar instantáneamente en una coordenada de mundo.
@@ -2337,7 +2337,7 @@ class MapViewWebState extends State<MapViewWeb> {
       return;
     }
     await _waitBridgeReady();
-    await _evalJs("window.setAvatarAtWorld?.($x, $y, $z);");
+    await _evalJs("window.setAvatarAtWorld && window.setAvatarAtWorld($x, $y, $z);");
   }
 
   /// Oculta el avatar de la escena (p.ej. al cambiar de piso sin destino).
@@ -2345,7 +2345,7 @@ class MapViewWebState extends State<MapViewWeb> {
     if (_webViewController == null) return;
     if (kIsWeb && _postCommandToIframe({'cmd': 'hideAvatar'})) return;
     await _waitBridgeReady();
-    await _evalJs("window.hideAvatar?.();");
+    await _evalJs("window.hideAvatar && window.hideAvatar();");
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2367,16 +2367,17 @@ class MapViewWebState extends State<MapViewWeb> {
 
           // ── Configuración optimizada para Sunmi K2 Pro ──
           initialSettings: InAppWebViewSettings(
-            // Rendimiento
+            // Rendimiento y compatibilidad
             hardwareAcceleration: true,
             useHybridComposition: true,
-            transparentBackground: true,
+            transparentBackground: false, // Fix para WebGL en WebViews viejos
 
             // Permisos necesarios para scripts WebGL/three.js
             javaScriptEnabled: true,
             allowFileAccessFromFileURLs: true,
             allowUniversalAccessFromFileURLs: true,
             mediaPlaybackRequiresUserGesture: false,
+            mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
 
             // Evitar scroll no deseado dentro del WebView
             supportZoom: false,
