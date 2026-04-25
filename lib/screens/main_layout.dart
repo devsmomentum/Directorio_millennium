@@ -12,6 +12,7 @@ import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 import '../widgets/screen_ad_banners.dart';
 import '../widgets/app_header.dart';
 import '../widgets/inactivity_warning.dart';
+import '../widgets/map_view_web.dart' show MapInteractionNotification;
 import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
@@ -280,8 +281,13 @@ class _MainLayoutState extends State<MainLayout> {
       onPointerDown: (_) => _startInactivityTimer(), // Dedo toca
       onPointerMove: (_) => _startInactivityTimer(), // Dedo arrastra
       onPointerUp: (_) => _startInactivityTimer(), // Dedo suelta
-      child: Stack(
-        children: [
+      child: NotificationListener<MapInteractionNotification>(
+        onNotification: (_) {
+          _startInactivityTimer();
+          return true; // Detenemos la propagación
+        },
+        child: Stack(
+          children: [
           // ── Scaffold completo (body + bottomNav) ──
           Scaffold(
             backgroundColor: AppColors.background,
@@ -333,6 +339,7 @@ class _MainLayoutState extends State<MainLayout> {
               ),
             ),
         ],
+      ),
       ),
     );
   }

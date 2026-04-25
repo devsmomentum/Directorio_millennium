@@ -20,6 +20,8 @@ import 'map_view_post_msg.dart'
 //  • Optimizaciones específicas para Sunmi K2 Pro (hardware acceleration)
 // ============================================================================
 
+class MapInteractionNotification extends Notification {}
+
 class MapViewWeb extends StatefulWidget {
   /// URL del modelo .glb del plano a renderizar
   final String modelUrl;
@@ -282,6 +284,21 @@ class MapViewWebState extends State<MapViewWeb> {
         console.log('[MapViewWeb][postMessage] error: ' + String(e));
       }
     });
+
+    // ── Interaction para resetear timeout ──
+    let lastInteractionTime = 0;
+    function handleInteraction() {
+      const now = Date.now();
+      if (now - lastInteractionTime > 1000) { 
+        lastInteractionTime = now;
+        if (typeof notifyFlutter === 'function') {
+          notifyFlutter('onInteraction', 'ok');
+        }
+      }
+    }
+    window.addEventListener('pointerdown', handleInteraction, { passive: true });
+    window.addEventListener('pointermove', handleInteraction, { passive: true });
+    window.addEventListener('wheel', handleInteraction, { passive: true });
 
     // Handshake hacia el host: avisamos que estamos listos para recibir
     // comandos. El host (Dart) guarda event.source como nuestra ventana.
@@ -2435,6 +2452,16 @@ class MapViewWebState extends State<MapViewWeb> {
                   }
                   debugPrint('[MapViewWeb][Web→Flutter] Ruta dibujada (steps=$steps)');
                   widget.onPathRendered?.call(steps);
+                  return null;
+                },
+              );
+
+              controller.addJavaScriptHandler(
+                handlerName: 'onInteraction',
+                callback: (args) {
+                  if (mounted) {
+                    MapInteractionNotification().dispatch(context);
+                  }
                   return null;
                 },
               );
