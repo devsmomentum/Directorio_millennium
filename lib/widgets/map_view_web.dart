@@ -470,6 +470,7 @@ class MapViewWebState extends State<MapViewWeb> {
       dotKeys: [],       // Progreso 0..1 al que cada dot debe estar visible
       destDot: null,     // Mesh del marcador de destino
       destHalo: null,    // Halo rosa alrededor del destino
+      startHalo: null,   // Marcador de inicio de ruta
       time: 0,           // Acumulador para animaciones de pulso
       // ── Fase de intro: la ruta se "dibuja" en el piso antes de caminar ──
       introDuration: 0.9, // segundos
@@ -498,6 +499,12 @@ class MapViewWebState extends State<MapViewWeb> {
         if (trailState.destHalo.geometry) trailState.destHalo.geometry.dispose();
         if (trailState.destHalo.material) trailState.destHalo.material.dispose();
         trailState.destHalo = null;
+      }
+      if (trailState.startHalo) {
+        scene.remove(trailState.startHalo);
+        if (trailState.startHalo.geometry) trailState.startHalo.geometry.dispose();
+        if (trailState.startHalo.material) trailState.startHalo.material.dispose();
+        trailState.startHalo = null;
       }
       for (const d of trailState.dots) {
         scene.remove(d);
@@ -560,7 +567,7 @@ class MapViewWebState extends State<MapViewWeb> {
       const _mapSize = mapBounds
         ? mapBounds.getSize(new THREE.Vector3())
         : new THREE.Vector3(30, 6, 30);
-      const Y_FLOOR = Math.max(_mapSize.y * 0.015, 0.35);
+      const Y_FLOOR = 0.04; // Ligeramente más alto para resaltar sobre el piso
 
       // ── Línea punteada animada (marching-ants) ──────────────────────
       // Densificamos la polilínea para que la animación de "dibujado"
@@ -609,7 +616,7 @@ class MapViewWebState extends State<MapViewWeb> {
       // del .glb se intercale por encima.
       pathLine.renderOrder = 9995;
       pathLine.frustumCulled = false;
-      scene.add(pathLine);
+      // scene.add(pathLine); // Eliminada la línea rosa hacia la tienda
       trailState.line = pathLine;
       trailState.lineMat = lineMat;
       trailState.totalLineVerts = pts.length;
@@ -625,14 +632,19 @@ class MapViewWebState extends State<MapViewWeb> {
             6.0,
           )
         : 30.0;
-      // ~3.5 % del span máximo, acotado entre 0.55 m y 1.6 m.
-      const FOOT_LEN = Math.min(Math.max(mapSpan * 0.035, 0.55), 1.6);
-      const FOOT_WID = FOOT_LEN * 0.55;
-      const FOOT_OFFSET = FOOT_WID * 1.05;
-      const FOOT_SPACING = FOOT_LEN * 1.6;
-      const MAX_FOOTS = 80;      // techo defensivo para mapas largos
+      // Huellas a escala del personaje y paso cercano
+      const FOOT_LEN = 0.35; // Aumentado para resaltar más
+      const FOOT_WID = FOOT_LEN * 0.45;
+      const FOOT_OFFSET = FOOT_WID * 0.8; 
+      const FOOT_SPACING = 0.55; 
+      const MAX_FOOTS = 300;      // techo defensivo para rutas largas
 
-      const footGeo = new THREE.PlaneGeometry(FOOT_WID, FOOT_LEN);
+      const footShapeLeft = makeFootShape(1);
+      const footShapeRight = makeFootShape(-1);
+      const footGeoLeft = new THREE.ShapeGeometry(footShapeLeft);
+      const footGeoRight = new THREE.ShapeGeometry(footShapeRight);
+      footGeoLeft.scale(FOOT_WID / 0.42, FOOT_LEN / 1.0, 1);
+      footGeoRight.scale(FOOT_WID / 0.42, FOOT_LEN / 1.0, 1);
 
       // Recorrido acumulado: vamos sembrando huellas cada FOOT_SPACING.
       let traveled = 0;
@@ -656,26 +668,27 @@ class MapViewWebState extends State<MapViewWeb> {
         const perpX = -dirZ;
         const perpZ = dirX;
         // Ángulo en torno al eje Y para orientar la huella hacia el avance.
-        const yaw = Math.atan2(dirX, dirZ);
+        const yaw = Math.atan2(dirX, dirZ) + Math.PI;
 
         while (nextSeed <= traveled + segLen && placed < MAX_FOOTS) {
           const t = (nextSeed - traveled) / segLen;
           const cx = a.x + (b.x - a.x) * t;
           const cy = a.y + (b.y - a.y) * t;
           const cz = a.z + (b.z - a.z) * t;
-          const side = (sideToggle % 2 === 0) ? 1 : -1;
+          const side = (sideToggle % 2 === 0) ? -1 : 1;
           const fx = cx + perpX * FOOT_OFFSET * side;
           const fz = cz + perpZ * FOOT_OFFSET * side;
 
+          const currentGeo = side === 1 ? footGeoLeft : footGeoRight;
           const footMat = new THREE.MeshBasicMaterial({
-            color: 0xFFFFFF,
+            color: 0x000000, // Color negro según solicitud
             transparent: true,
             opacity: 0.0, // se revela durante el intro
-            depthTest: false,
+            depthTest: true,
             depthWrite: false,
             side: THREE.DoubleSide,
           });
-          const foot = new THREE.Mesh(footGeo, footMat);
+          const foot = new THREE.Mesh(currentGeo, footMat);
           // Acostada en el suelo, alineada con la dirección del camino.
           // Tras rotation.x = -PI/2, el eje "alto" del plano (FOOT_LEN)
           // queda a lo largo de Z mundial y rotation.z rota alrededor de
@@ -696,20 +709,39 @@ class MapViewWebState extends State<MapViewWeb> {
         traveled += segLen;
       }
 
-      // ── Marcador de destino (círculo blanco + halo rosa) ────────────
-      // Radios proporcionales al span del mapa para mantener legibilidad
-      // tanto en plantas pequeñas (PL ≈ 12 m) como en RG (>50 m).
-      const DEST_RADIUS = Math.min(Math.max(mapSpan * 0.018, 0.30), 0.85);
-      const HALO_INNER = DEST_RADIUS * 1.05;
-      const HALO_OUTER = DEST_RADIUS * 1.55;
+      // ── Marcador de inicio (círculo origen) ────────────
+      const START_RADIUS = 0.50; // Más grande para resaltar
+      const start = waypoints[0];
+      const startHalo = new THREE.Mesh(
+        new THREE.CircleGeometry(START_RADIUS, 32), // Círculo sólido para mayor visibilidad
+        new THREE.MeshBasicMaterial({
+          color: 0x74BD26, // Verde (secondary color)
+          transparent: true,
+          opacity: 0.0, // animaremos esto en intro
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      startHalo.position.set(start.x, start.y + Y_FLOOR, start.z);
+      startHalo.rotation.x = -Math.PI / 2;
+      startHalo.renderOrder = 9998;
+      startHalo.frustumCulled = false;
+      scene.add(startHalo);
+      trailState.startHalo = startHalo;
+
+      // ── Marcador de destino (círculo elegante y proporcionado) ────────────
+      const DEST_RADIUS = 0.35; // Aumentado para resaltar más
+      const HALO_INNER = DEST_RADIUS * 1.1;
+      const HALO_OUTER = DEST_RADIUS * 1.4;
       const dest = waypoints[waypoints.length - 1];
       const destDot = new THREE.Mesh(
         new THREE.CircleGeometry(DEST_RADIUS, 24),
         new THREE.MeshBasicMaterial({
-          color: 0xFFFFFF,
+          color: 0x0707DD, // Azul (primary color)
           transparent: true,
           opacity: 0.0, // se revela al final del intro
-          depthTest: false,
+          depthTest: true,
           depthWrite: false,
           side: THREE.DoubleSide,
         }),
@@ -721,14 +753,14 @@ class MapViewWebState extends State<MapViewWeb> {
       scene.add(destDot);
       trailState.destDot = destDot;
 
-      // Halo exterior rosa alrededor del destino
+      // Halo exterior azul alrededor del destino
       const halo = new THREE.Mesh(
         new THREE.RingGeometry(HALO_INNER, HALO_OUTER, 24),
         new THREE.MeshBasicMaterial({
-          color: 0xFF007A,
+          color: 0x0707DD, // Azul (primary color)
           transparent: true,
           opacity: 0.0, // se revela al final del intro
-          depthTest: false,
+          depthTest: true,
           depthWrite: false,
           side: THREE.DoubleSide,
         }),
@@ -1410,41 +1442,53 @@ class MapViewWebState extends State<MapViewWeb> {
       return distance / Math.max(speed, 0.01);
     }
 
-    // Encuadra la cámara para ver el recorrido completo (kiosco → tienda).
-    // Calcula el bounding box XZ de todos los waypoints y posiciona la cámara
-    // a la altura/distancia óptima para que el usuario vea todo el trayecto.
+    // Encuadra la cámara alineada con la ruta (desde el inicio hacia el destino)
     function fitCameraToRoute(waypoints) {
-      if (!waypoints || waypoints.length === 0 || !mapBounds) return;
+      if (!waypoints || waypoints.length < 2 || !mapBounds) return;
 
-      let minX = Infinity, maxX = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-      for (const w of waypoints) {
-        if (w.x < minX) minX = w.x;
-        if (w.x > maxX) maxX = w.x;
-        if (w.z < minZ) minZ = w.z;
-        if (w.z > maxZ) maxZ = w.z;
-      }
+      const start = waypoints[0];
+      const end = waypoints[waypoints.length - 1];
 
-      const cx = (minX + maxX) * 0.5;
-      const cz = (minZ + maxZ) * 0.5;
-      const spanX = Math.max(maxX - minX, 1.5);
-      const spanZ = Math.max(maxZ - minZ, 1.5);
-      const span  = Math.max(spanX, spanZ);
+      const routeVec = new THREE.Vector3(end.x - start.x, 0, end.z - start.z);
+      const span = routeVec.length();
+      
+      if (span < 1e-3) return;
+      
+      routeVec.normalize();
 
-      // Distancia de cámara: suficiente para ver el span con margen (factor 0.6),
-      // siempre dentro de los límites permitidos por el mapa.
-      const dist = THREE.MathUtils.clamp(span * 0.60, minDistance, maxDistance * 0.92);
+      const cx = (start.x + end.x) * 0.5;
+      const cz = (start.z + end.z) * 0.5;
 
-      const nextTarget = new THREE.Vector3(cx, mapCenter.y, cz);
-      // Posición: directamente sobre el centro, inclinada ~14° hacia adelante
-      const nextCamPos = new THREE.Vector3(cx, mapCenter.y + dist, cz + dist * 0.24);
+      // Target: Prioriza el inicio, mirando un poco hacia adelante (20% del trayecto)
+      const targetDist = span * 0.20;
+      const nextTarget = new THREE.Vector3(
+        start.x + routeVec.x * targetDist,
+        mapCenter.y,
+        start.z + routeVec.z * targetDist
+      );
+
+      // Cámara: Mucho más lejos y alta para ver ambos puntos, detrás del inicio
+      const idealPullBack = Math.max(span * 0.95, 5.0);
+      const idealHeight = Math.max(span * 1.35, 7.0);
+      
+      const idealDist = Math.sqrt(idealPullBack*idealPullBack + idealHeight*idealHeight);
+      const finalDist = THREE.MathUtils.clamp(idealDist, minDistance, maxDistance * 0.95);
+      
+      const ratio = finalDist / idealDist;
+      const pullBack = idealPullBack * ratio;
+      const height = idealHeight * ratio;
+
+      const nextCamPos = new THREE.Vector3(
+        start.x - routeVec.x * pullBack,
+        mapCenter.y + height,
+        start.z - routeVec.z * pullBack
+      );
 
       startCameraTransition(nextCamPos, nextTarget);
 
       console.log(
-        '[MapViewWeb][Camera] fitRoute: span=' + span.toFixed(2)
+        '[MapViewWeb][Camera] fitRoute aligned: span=' + span.toFixed(2)
         + ' dist=' + dist.toFixed(2)
-        + ' cx=' + cx.toFixed(2) + ' cz=' + cz.toFixed(2)
       );
     }
 
@@ -1633,6 +1677,12 @@ class MapViewWebState extends State<MapViewWeb> {
             dot.material.opacity = 1.0 * local;
           }
 
+          // Inicio: aparece al principio del intro
+          const startReveal = THREE.MathUtils.clamp(eased / 0.15, 0, 1);
+          if (trailState.startHalo) {
+            trailState.startHalo.material.opacity = 0.85 * startReveal;
+          }
+
           // Destino: aparece en el último tramo del intro
           const destReveal = THREE.MathUtils.clamp((eased - 0.85) / 0.15, 0, 1);
           if (trailState.destDot) {
@@ -1668,6 +1718,17 @@ class MapViewWebState extends State<MapViewWeb> {
           if (trailState.destDot) {
             trailState.destDot.material.opacity =
               0.68 + 0.27 * Math.abs(Math.sin(trailState.time * 4.2));
+          }
+          if (trailState.destHalo) {
+            const destPulse = 0.60 + 0.40 * Math.abs(Math.sin(trailState.time * 4.2));
+            trailState.destHalo.material.opacity = destPulse;
+            trailState.destHalo.scale.setScalar(0.95 + 0.05 * destPulse);
+          }
+          // Pulso suave y escalado del marcador de inicio para resaltarlo
+          if (trailState.startHalo) {
+            const pulse = 0.75 + 0.25 * Math.abs(Math.sin(trailState.time * 3.5));
+            trailState.startHalo.material.opacity = pulse;
+            trailState.startHalo.scale.setScalar(0.85 + 0.15 * pulse);
           }
         }
         // Watchdog: si el intro ya terminó pero el callback sigue pendiente
