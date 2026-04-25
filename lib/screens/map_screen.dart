@@ -36,8 +36,18 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  // Key global para acceder al estado de MapViewWeb (comunicación Flutter→Web)
-  final GlobalKey<MapViewWebState> _mapViewKey = GlobalKey<MapViewWebState>();
+  // Pisos disponibles (orden = índice del IndexedStack)
+  static const List<String> _kAllFloors = ['RG', 'PL', 'C1', 'C2', 'C3', 'C4'];
+
+  // Una key por piso para preservar el estado del WebView entre rebuilds
+  late final Map<String, GlobalKey<MapViewWebState>> _floorKeys;
+
+  // Pisos que ya tienen su MapViewWeb instanciado en el árbol (lazy)
+  final Set<String> _activatedFloors = {};
+
+  // Pisos cuyo onMapLoaded ya disparó (calibración aplicada)
+  final Set<String> _loadedFloors = {};
+
   final SupabaseService _supabaseService = SupabaseService();
   final TextEditingController _searchController = TextEditingController();
   
@@ -82,6 +92,8 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    _floorKeys = {for (final f in _kAllFloors) f: GlobalKey<MapViewWebState>()};
+    _activatedFloors.add(_selectedFloor); // RG activo desde el inicio
     _loadData();
     _setupRealtime();
     _categoryScrollController.addListener(_updateCategoryScrollState);
@@ -102,7 +114,7 @@ class _MapScreenState extends State<MapScreen> {
     debugPrint('[MapScreen] KioskBus → recargando datos por cambio de kiosco');
     _selectedStoreForRoute = null;
     _routeDispatched = false;
-    _mapViewKey.currentState?.stopAvatarRoute();
+    _floorKeys[_selectedFloor]?.currentState?.stopAvatarRoute();
     _loadData(isSilent: true);
   }
 
@@ -512,10 +524,16 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     if (targetFloorName != null && targetFloorName != _selectedFloor) {
-      setState(() => _selectedFloor = targetFloorName);
-      // Al cambiar de piso el MapViewWeb se reconstruye (ValueKey), por lo que
-      // `onMapLoaded` disparará `_runAvatarRouteTo` para la tienda en el nuevo
-      // piso. Nada más que hacer aquí.
+      setState(() {
+        _selectedFloor = targetFloorName;
+        _activatedFloors.add(targetFloorName);
+      });
+      // Si el piso ya estaba cargado (WebView en caché), despachamos la ruta
+      // directamente sin esperar onMapLoaded (que no volverá a disparar).
+      if (_loadedFloors.contains(targetFloorName)) {
+        _runAvatarRouteTo(store);
+      }
+      // else: onMapLoaded del piso disparará _runAvatarRouteTo al terminar de cargar
       return;
     }
 
@@ -585,7 +603,7 @@ class _MapScreenState extends State<MapScreen> {
 
     // La cámara la posiciona el JS (fitCameraToRoute) para encuadrar el
     // recorrido completo desde el kiosco hasta la tienda.
-    final mapView = _mapViewKey.currentState;
+    final mapView = _floorKeys[_selectedFloor]?.currentState;
     // Marcar ANTES del envío: en web la recarga de HTML puede disparar
     // onMapLoaded muy rápido y llegar antes de que esta línea se ejecute.
     _routeDispatched = true;
@@ -604,7 +622,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     if (kioskNode == null) return;
     final world = _kNodeWorldMapping.toWorld(kioskNode);
-    _mapViewKey.currentState?.setAvatarAtWorld(world.x, world.y, world.z);
+    _floorKeys[_selectedFloor]?.currentState?.setAvatarAtWorld(world.x, world.y, world.z);
   }
 
   @override
@@ -922,11 +940,37 @@ class _MapScreenState extends State<MapScreen> {
   // ══════════════════════════════════════════════════════════════════════════
   // Columna B — Visor 3D del mapa (InAppWebView + model-viewer)
   // ══════════════════════════════════════════════════════════════════════════
-  Widget _build3DMapArea() {
-    // URL dinámica apuntando al bucket de Supabase según el piso seleccionado
-    final modelUrl =
-        'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${_selectedFloor.toLowerCase()}.glb';
 
+  /// Callback unificado que se dispara cuando un piso termina de cargar por
+  /// primera vez. Aplica calibración y despacha la ruta si corresponde.
+  void _onFloorMapLoaded(String floor) {
+    debugPrint('[MapScreen] Mapa del piso $floor cargado');
+    _loadedFloors.add(floor);
+
+    final calib = _floorCalibrations[floor];
+    if (calib != null) {
+      _floorKeys[floor]?.currentState?.setMapCalibration(
+        scale: calib['scale']!,
+        ox: calib['ox']!,
+        oy: calib['oy']!,
+        oz: calib['oz']!,
+        rotY: calib['rotY']!,
+      );
+    }
+
+    // Solo actuar si este piso es el que el usuario está viendo ahora.
+    if (floor != _selectedFloor) return;
+
+    // En Flutter Web, startAvatarRoute recarga el HTML y onMapLoaded vuelve a
+    // dispararse. El flag _routeDispatched previene el loop infinito.
+    if (_selectedStoreForRoute != null && !_routeDispatched) {
+      _runAvatarRouteTo(_selectedStoreForRoute!);
+    } else if (_selectedStoreForRoute == null) {
+      _placeAvatarAtKiosk();
+    }
+  }
+
+  Widget _build3DMapArea() {
     const floorLabels = {
       'RG': '🗺 PLANTA BAJA',
       'PL': '🗺 NIVEL PL',
@@ -956,7 +1000,9 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Visor 3D con MapViewWeb (recarga al cambiar de piso)
+          // Visor 3D con caché por piso: IndexedStack mantiene todos los WebViews
+          // instanciados en memoria; cambiar de piso solo alterna el índice visible
+          // sin destruir ni recargar los WebViews ya cargados.
           Expanded(
             child: Container(
               width: double.infinity,
@@ -966,45 +1012,31 @@ class _MapScreenState extends State<MapScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
-                child: MapViewWeb(
-                  // GlobalKey<MapViewWebState> para exponer la API imperativa.
-                  // El cambio de piso se maneja vía didUpdateWidget (recarga el
-                  // HTML inline con la nueva URL del .glb).
-                  key: _mapViewKey,
-                  modelUrl: modelUrl,
-                  avatarUrl: _kAvatarModelUrl,
-                  onMapLoaded: () {
-                    debugPrint('[MapScreen] Mapa del piso $_selectedFloor cargado');
-                    // Sincronizar calibración antes de lanzar la ruta.
-                    // Esto garantiza que el modelo GLB esté en la misma posición
-                    // y escala que cuando se capturaron los nodos en el editor.
-                    final calib = _floorCalibrations[_selectedFloor];
-                    if (calib != null) {
-                      _mapViewKey.currentState?.setMapCalibration(
-                        scale: calib['scale']!,
-                        ox: calib['ox']!,
-                        oy: calib['oy']!,
-                        oz: calib['oz']!,
-                        rotY: calib['rotY']!,
-                      );
+                child: IndexedStack(
+                  index: _kAllFloors.indexOf(_selectedFloor),
+                  children: _kAllFloors.map((floor) {
+                    // Lazy: solo creamos el WebView cuando el piso es visitado
+                    // por primera vez. Los placeholders son widgets vacíos y
+                    // baratos; el IndexedStack los mantiene en el árbol de todos
+                    // modos, pero sin overhead de WebView.
+                    if (!_activatedFloors.contains(floor)) {
+                      return const SizedBox.shrink();
                     }
-                    // En Flutter Web, startAvatarRoute recarga el HTML y
-                    // onMapLoaded vuelve a dispararse. Sin este check,
-                    // llamaríamos _runAvatarRouteTo otra vez → loop infinito.
-                    // El bootstrap embebido ya ejecuta la ruta; no hacer nada
-                    // más si ya fue despachada.
-                    if (_selectedStoreForRoute != null && !_routeDispatched) {
-                      _runAvatarRouteTo(_selectedStoreForRoute!);
-                    } else if (_selectedStoreForRoute == null) {
-                      _placeAvatarAtKiosk();
-                    }
-                  },
-                  onError: () {
-                    debugPrint('[MapScreen] Error cargando mapa de $_selectedFloor');
-                  },
-                  onAvatarArrived: () {
-                    debugPrint('[MapScreen] Avatar llegó a destino');
-                  },
+                    final modelUrl =
+                        'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${floor.toLowerCase()}.glb';
+                    return MapViewWeb(
+                      key: _floorKeys[floor],
+                      modelUrl: modelUrl,
+                      avatarUrl: _kAvatarModelUrl,
+                      onMapLoaded: () => _onFloorMapLoaded(floor),
+                      onError: () {
+                        debugPrint('[MapScreen] Error cargando mapa de $floor');
+                      },
+                      onAvatarArrived: () {
+                        debugPrint('[MapScreen] Avatar llegó a destino');
+                      },
+                    );
+                  }).toList(),
                 ),
               ),
             ),
@@ -1042,7 +1074,23 @@ class _MapScreenState extends State<MapScreen> {
               final floor = floors[index];
               final isSelected = _selectedFloor == floor;
               return GestureDetector(
-                onTap: () => setState(() => _selectedFloor = floor),
+                onTap: () {
+                  if (_selectedFloor == floor) return;
+                  setState(() {
+                    _selectedFloor = floor;
+                    _activatedFloors.add(floor);
+                  });
+                  // Si el piso ya estaba cargado, actualizamos el avatar
+                  // directamente sin esperar onMapLoaded.
+                  if (_loadedFloors.contains(floor)) {
+                    if (_selectedStoreForRoute != null) {
+                      _routeDispatched = false;
+                      _runAvatarRouteTo(_selectedStoreForRoute!);
+                    } else {
+                      _placeAvatarAtKiosk();
+                    }
+                  }
+                },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: 46,
