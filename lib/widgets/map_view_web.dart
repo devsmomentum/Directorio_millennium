@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../theme/app_theme.dart';
+import 'map_view_post_msg.dart'
+    if (dart.library.js_interop) 'map_view_post_msg_web.dart';
 
 // ============================================================================
 // MapViewWeb — Visor 3D basado en InAppWebView + three.js
@@ -52,6 +55,22 @@ class MapViewWebState extends State<MapViewWeb> {
   bool _hasError = false;
   Timer? _webLoadPoller;
   String _webCommandBootstrap = '';
+
+  // ── Canal postMessage (Flutter Web → iframe). Permite empujar comandos
+  // sin recargar el HTML cada vez. El primer comando puede llegar antes de
+  // que la iframe haga el handshake `mapview-ready`; en ese caso caemos al
+  // bootstrap-reload tradicional. Llamadas posteriores ya usan postMessage.
+  final String _instanceId = _generateInstanceId();
+  final MapViewPostBridge _postBridge = MapViewPostBridge();
+  bool _postBridgeReady = false;
+
+  static String _generateInstanceId() {
+    final r = Random.secure();
+    final bytes = List<int>.generate(8, (_) => r.nextInt(256));
+    return bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // Color de fondo de la app convertido a hex CSS para evitar parpadeos blancos
@@ -208,6 +227,9 @@ class MapViewWebState extends State<MapViewWeb> {
     // Comandos que Flutter web no puede inyectar vía evaluateJavascript.
     // Se rellenan desde Dart y se ejecutan al final del módulo.
     window.__flutterBootstrapCommands = ${jsonEncode(_webCommandBootstrap)};
+    // Identificador único de esta instancia: usado por el host Flutter Web
+    // para enrutar comandos via postMessage cuando hay varias iframes.
+    window.__milemiumInstanceId = ${jsonEncode(_instanceId)};
   </script>
 
   <script type="module">
@@ -215,9 +237,54 @@ class MapViewWebState extends State<MapViewWeb> {
     import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js/+esm';
     import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/loaders/GLTFLoader.js/+esm';
 
-    console.log('[MapViewWeb][Debug] JS actualizado: waypoint markers + fit + autocenter (2026-04-24)');
+    console.log('[MapViewWeb][Debug] JS actualizado: walk-loop + postMessage (2026-04-25)');
     // Handshake para que Flutter sepa que el módulo inicializó.
     window.__bridgeReady = true;
+
+    // ── Canal postMessage entrante: el host (Flutter Web) empuja comandos
+    //    sin recargar el HTML. Cada caso resuelve a la función global
+    //    correspondiente que ya expone el módulo (window.startAvatarRoute,
+    //    etc). Si la función aún no está definida (módulo todavía cargando
+    //    THREE.js / GLBs), simplemente hacemos no-op; el host reintentará.
+    window.addEventListener('message', function(event) {
+      try {
+        const raw = event.data;
+        if (typeof raw !== 'string' || raw.length === 0) return;
+        const msg = JSON.parse(raw);
+        if (!msg || typeof msg !== 'object') return;
+        const cmd = msg.cmd;
+        if (!cmd) return;
+        switch (cmd) {
+          case 'startAvatarRoute':
+            if (window.startAvatarRoute) window.startAvatarRoute(msg.payload, msg.opts);
+            break;
+          case 'stopAvatarRoute':
+            if (window.stopAvatarRoute) window.stopAvatarRoute();
+            break;
+          case 'hideAvatar':
+            if (window.hideAvatar) window.hideAvatar();
+            break;
+          case 'setAvatarAtWorld':
+            if (window.setAvatarAtWorld) window.setAvatarAtWorld(msg.x, msg.y, msg.z);
+            break;
+          case 'setMapCalibration':
+            if (window.setMapCalibration) window.setMapCalibration(msg.calib);
+            break;
+        }
+      } catch (e) {
+        console.log('[MapViewWeb][postMessage] error: ' + String(e));
+      }
+    });
+
+    // Handshake hacia el host: avisamos que estamos listos para recibir
+    // comandos. El host (Dart) guarda event.source como nuestra ventana.
+    try {
+      const ready = JSON.stringify({
+        kind: 'mapview-ready',
+        instanceId: window.__milemiumInstanceId || '',
+      });
+      window.parent && window.parent.postMessage(ready, '*');
+    } catch (_) { /* iframe en sandbox/sin parent: ignorar */ }
 
     const MODEL_URL = '${widget.modelUrl}';
     const AVATAR_URL = '${widget.avatarUrl ?? ''}';
@@ -393,8 +460,16 @@ class MapViewWebState extends State<MapViewWeb> {
       line: null,        // THREE.Line (línea punteada)
       lineMat: null,     // LineDashedMaterial
       dots: [],          // Meshes de puntos intermedios
+      dotKeys: [],       // Progreso 0..1 al que cada dot debe estar visible
       destDot: null,     // Mesh del marcador de destino
+      destHalo: null,    // Halo rosa alrededor del destino
       time: 0,           // Acumulador para animaciones de pulso
+      // ── Fase de intro: la ruta se "dibuja" en el piso antes de caminar ──
+      introDuration: 0.9, // segundos
+      introProgress: 0,   // 0..1
+      introComplete: false,
+      totalLineVerts: 0,  // vértices densificados de la línea (para drawRange)
+      onIntroDone: null,  // callback al completarse el intro
     };
 
     function clearPathTrail() {
@@ -411,13 +486,24 @@ class MapViewWebState extends State<MapViewWeb> {
         if (trailState.destDot.material) trailState.destDot.material.dispose();
         trailState.destDot = null;
       }
+      if (trailState.destHalo) {
+        scene.remove(trailState.destHalo);
+        if (trailState.destHalo.geometry) trailState.destHalo.geometry.dispose();
+        if (trailState.destHalo.material) trailState.destHalo.material.dispose();
+        trailState.destHalo = null;
+      }
       for (const d of trailState.dots) {
         scene.remove(d);
         if (d.geometry) d.geometry.dispose();
         if (d.material) d.material.dispose();
       }
       trailState.dots = [];
+      trailState.dotKeys = [];
       trailState.time = 0;
+      trailState.introProgress = 0;
+      trailState.introComplete = false;
+      trailState.totalLineVerts = 0;
+      trailState.onIntroDone = null;
     }
 
     function spawnPathTrail(waypoints) {
@@ -430,17 +516,38 @@ class MapViewWebState extends State<MapViewWeb> {
       const Y_FLOOR = 0.028;
 
       // ── Línea punteada animada (marching-ants) ──────────────────────
-      const pts = waypoints.map(function(w) {
+      // Densificamos la polilínea para que la animación de "dibujado"
+      // (drawRange creciendo) se vea fluida aunque haya pocos waypoints.
+      const basePts = waypoints.map(function(w) {
         return new THREE.Vector3(w.x, w.y + Y_FLOOR, w.z);
       });
+      const SUBDIV = 10; // pasos por segmento original
+      const pts = [];
+      for (let i = 0; i < basePts.length - 1; i++) {
+        const a = basePts[i];
+        const b = basePts[i + 1];
+        for (let j = 0; j < SUBDIV; j++) {
+          const t = j / SUBDIV;
+          pts.push(new THREE.Vector3(
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t,
+            a.z + (b.z - a.z) * t,
+          ));
+        }
+      }
+      pts.push(basePts[basePts.length - 1]);
+
       const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
       lineGeo.computeLineDistances(); // obligatorio para LineDashedMaterial
+      // Arrancamos sin nada visible: la fase de intro ampliará drawRange
+      // hasta cubrir todos los vértices y ahí "se dibuja" la ruta en el piso.
+      lineGeo.setDrawRange(0, 0);
       const lineMat = new THREE.LineDashedMaterial({
         color: 0xFF007A,
         dashSize: 0.20,
         gapSize: 0.12,
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.92, // un poco más fuerte para que "resalte" al dibujarse
         depthTest: false,
         depthWrite: false,
       });
@@ -450,6 +557,7 @@ class MapViewWebState extends State<MapViewWeb> {
       scene.add(pathLine);
       trailState.line = pathLine;
       trailState.lineMat = lineMat;
+      trailState.totalLineVerts = pts.length;
 
       // ── Puntos intermedios (máx. 25 para no saturar Sunmi) ──────────
       const dotBaseGeo = new THREE.CircleGeometry(0.065, 10);
@@ -459,6 +567,7 @@ class MapViewWebState extends State<MapViewWeb> {
         ? 1
         : Math.ceil(totalIntermediate / MAX_DOTS);
 
+      const lastIdx = Math.max(waypoints.length - 1, 1);
       for (let i = 1; i < waypoints.length - 1; i += step) {
         const w = waypoints[i];
         const dot = new THREE.Mesh(
@@ -466,7 +575,7 @@ class MapViewWebState extends State<MapViewWeb> {
           new THREE.MeshBasicMaterial({
             color: 0xFF007A,
             transparent: true,
-            opacity: 0.60,
+            opacity: 0.0, // arranca invisible; el intro lo va revelando
             depthTest: false,
             depthWrite: false,
             side: THREE.DoubleSide,
@@ -478,6 +587,7 @@ class MapViewWebState extends State<MapViewWeb> {
         dot.frustumCulled = false;
         scene.add(dot);
         trailState.dots.push(dot);
+        trailState.dotKeys.push(i / lastIdx);
       }
 
       // ── Marcador de destino (círculo blanco + halo rosa) ────────────
@@ -487,7 +597,7 @@ class MapViewWebState extends State<MapViewWeb> {
         new THREE.MeshBasicMaterial({
           color: 0xFFFFFF,
           transparent: true,
-          opacity: 0.95,
+          opacity: 0.0, // se revela al final del intro
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
@@ -506,7 +616,7 @@ class MapViewWebState extends State<MapViewWeb> {
         new THREE.MeshBasicMaterial({
           color: 0xFF007A,
           transparent: true,
-          opacity: 0.55,
+          opacity: 0.0, // también se revela al final del intro
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
@@ -517,7 +627,7 @@ class MapViewWebState extends State<MapViewWeb> {
       halo.renderOrder = 998;
       halo.frustumCulled = false;
       scene.add(halo);
-      trailState.dots.push(halo); // incluir en cleanup
+      trailState.destHalo = halo;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1096,6 +1206,7 @@ class MapViewWebState extends State<MapViewWeb> {
           avatarState.sourceUrl = avatarSrc;
           avatarState.yOffset = finalYOffset;
           avatarState.scale = finalScale;
+          avatarState.baseScale = finalScale; // referencia estable para fade de respawn
 
           avatarState.mixer = new THREE.AnimationMixer(root);
           avatarState.mixer.timeScale = 1.0;
@@ -1230,29 +1341,23 @@ class MapViewWebState extends State<MapViewWeb> {
         return;
       }
 
-      // Trail y cámara: aislados en try-catch para que cualquier error interno
-      // NO impida guardar pendingRoute ni ejecutar playWalk().
-      try {
-        spawnPathTrail(waypoints);
-      } catch (trailErr) {
-        console.log('[MapViewWeb][Trail] Error al crear trail: ' + String(trailErr));
+      // Si el avatar aún no está listo, NO arrancamos el trail ni la cámara:
+      // dejarlo así produce un intro huérfano (sin onIntroDone) que después
+      // condena la animación a quedarse en idle. Guardamos la ruta cruda y
+      // dejamos que el callback de loadAvatar reintente cuando todo esté
+      // listo, ahí sí arrancamos trail + cámara + walk en bloque.
+      if (!avatarState.ready || !avatarState.root) {
+        avatarState.pendingRoute = { waypoints: rawWaypoints, opts: options };
+        console.log('[MapViewWeb][Avatar] Ruta en cola — esperando modelo');
+        return;
       }
-      if (options.autoCenter !== false) {
-        try { fitCameraToRoute(waypoints); } catch (_) {}
-      }
+
       console.log(
         '[MapViewWeb][Avatar][Route] wp=' + waypoints.length
         + ' dest=(' + waypoints[waypoints.length - 1].x.toFixed(2)
         + ', ' + waypoints[waypoints.length - 1].y.toFixed(2)
         + ', ' + waypoints[waypoints.length - 1].z.toFixed(2) + ')'
       );
-
-      // Si el avatar no está listo, guardamos la ruta y reintentamos al cargar.
-      if (!avatarState.ready || !avatarState.root) {
-        avatarState.pendingRoute = { waypoints: rawWaypoints, opts: options };
-        console.log('[MapViewWeb][Avatar] Ruta en cola — esperando modelo');
-        return;
-      }
 
       // Velocidad: si el caller no la especifica, se calcula como el 8% del span
       // del mapa por segundo (≈ cruzar el mapa en ~12 s), proporcional a la escala
@@ -1265,6 +1370,20 @@ class MapViewWebState extends State<MapViewWeb> {
       avatarState.route = waypoints;
       avatarState.segmentIndex = 0;
       avatarState.segmentProgress = 0.0;
+      avatarState.arrivalNotified = false;
+      avatarState.respawning = false;
+      avatarState.respawnT = 0.0;
+
+      // Trail + cámara + walk SOLO cuando el avatar está listo: así el intro
+      // siempre va emparejado con un onIntroDone válido.
+      try {
+        spawnPathTrail(waypoints);
+      } catch (trailErr) {
+        console.log('[MapViewWeb][Trail] Error al crear trail: ' + String(trailErr));
+      }
+      if (options.autoCenter !== false) {
+        try { fitCameraToRoute(waypoints); } catch (_) {}
+      }
 
       // Colocar avatar en el primer waypoint
       placeAvatarAt(waypoints[0]);
@@ -1289,8 +1408,25 @@ class MapViewWebState extends State<MapViewWeb> {
         avatarState.root.quaternion.copy(avatarState.targetQuat);
       }
 
-      avatarState.isWalking = true;
-      playWalk();
+      // Caminar SOLO después de que la ruta termine de dibujarse en el piso.
+      // Mientras tanto el avatar queda quieto en el primer waypoint (idle).
+      avatarState.isWalking = false;
+      playIdle();
+      const startWalking = function() {
+        avatarState.isWalking = true;
+        playWalk();
+        const walkClipName = (avatarState.clips.walk && avatarState.clips.walk.name) || '<none>';
+        console.log('[MapViewWeb][Avatar] intro→walk OK (clip=' + walkClipName + ')');
+      };
+      // Si por algún motivo el trail no se construyó (caso defensivo), no
+      // dejar al avatar atascado en idle: arranca a caminar en el siguiente
+      // tick.
+      if (!trailState.lineMat) {
+        console.log('[MapViewWeb][Avatar] Trail ausente → caminando sin intro');
+        startWalking();
+      } else {
+        trailState.onIntroDone = startWalking;
+      }
       console.log(
         '[MapViewWeb][Avatar] Ruta iniciada — ' + waypoints.length + ' waypoints'
       );
@@ -1301,6 +1437,14 @@ class MapViewWebState extends State<MapViewWeb> {
       avatarState.segmentIndex = 0;
       avatarState.segmentProgress = 0.0;
       avatarState.isWalking = false;
+      avatarState.arrivalNotified = false;
+      avatarState.respawning = false;
+      avatarState.respawnT = 0.0;
+      avatarState.respawnTeleported = false;
+      // Si quedó a media escala por un respawn interrumpido, restaurar.
+      if (avatarState.root && avatarState.baseScale) {
+        avatarState.root.scale.setScalar(avatarState.baseScale);
+      }
       clearPathTrail();
       clearWaypointMarkers(); // limpia cualquier esfera de debug residual
       if (avatarState.ready) {
@@ -1335,12 +1479,75 @@ class MapViewWebState extends State<MapViewWeb> {
         trailState.time += dt;
         // Marching-ants: desplazar los guiones en la dirección del avance
         trailState.lineMat.dashOffset -= dt * 0.75;
-        // Pulso suave de la línea (0.62 → 0.88 → 0.62, período ~2.5 s)
-        trailState.lineMat.opacity = 0.62 + 0.26 * Math.sin(trailState.time * 2.5);
-        // Pulso del marcador de destino (más rápido, más llamativo)
-        if (trailState.destDot) {
-          trailState.destDot.material.opacity =
-            0.68 + 0.27 * Math.abs(Math.sin(trailState.time * 4.2));
+
+        if (!trailState.introComplete) {
+          // ── Fase de intro: la ruta se "dibuja" en el piso ──
+          trailState.introProgress = Math.min(
+            1.0,
+            trailState.introProgress + dt / Math.max(trailState.introDuration, 0.001),
+          );
+          const p = trailState.introProgress;
+          // Ease-out cubic para que el dibujado se sienta enérgico al inicio
+          const eased = 1 - Math.pow(1 - p, 3);
+
+          // Crecer la línea desde el origen hasta el destino
+          if (trailState.line && trailState.line.geometry && trailState.totalLineVerts > 0) {
+            const visibleVerts = Math.max(
+              2,
+              Math.floor(trailState.totalLineVerts * eased),
+            );
+            trailState.line.geometry.setDrawRange(0, visibleVerts);
+          }
+          // Opacidad de la línea creciendo de 0 a 0.88
+          trailState.lineMat.opacity = 0.88 * eased;
+
+          // Revelar dots conforme el "frente" de dibujado los alcanza
+          for (let i = 0; i < trailState.dots.length; i++) {
+            const dot = trailState.dots[i];
+            const key = trailState.dotKeys[i] || 0;
+            const local = THREE.MathUtils.clamp((eased - key) / 0.08, 0, 1);
+            dot.material.opacity = 0.60 * local;
+          }
+
+          // Destino: aparece en el último tramo del intro
+          const destReveal = THREE.MathUtils.clamp((eased - 0.85) / 0.15, 0, 1);
+          if (trailState.destDot) {
+            trailState.destDot.material.opacity = 0.95 * destReveal;
+          }
+          if (trailState.destHalo) {
+            trailState.destHalo.material.opacity = 0.55 * destReveal;
+          }
+
+          if (p >= 1.0) {
+            trailState.introComplete = true;
+            // Asegurar geometría completa al cerrar la fase
+            if (trailState.line && trailState.line.geometry && trailState.totalLineVerts > 0) {
+              trailState.line.geometry.setDrawRange(0, trailState.totalLineVerts);
+            }
+            const cb = trailState.onIntroDone;
+            trailState.onIntroDone = null;
+            if (typeof cb === 'function') {
+              try { cb(); } catch (e) { console.log('[MapViewWeb][Trail] onIntroDone error: ' + String(e)); }
+            }
+          }
+        } else {
+          // ── Post-intro: pulso suave + marching-ants ──
+          // Pulso suave de la línea (0.62 → 0.88 → 0.62, período ~2.5 s)
+          trailState.lineMat.opacity = 0.62 + 0.26 * Math.sin(trailState.time * 2.5);
+          // Pulso del marcador de destino (más rápido, más llamativo)
+          if (trailState.destDot) {
+            trailState.destDot.material.opacity =
+              0.68 + 0.27 * Math.abs(Math.sin(trailState.time * 4.2));
+          }
+        }
+        // Watchdog: si el intro ya terminó pero el callback sigue pendiente
+        // (tab en background, dt clampado, etc.), forzamos su ejecución para
+        // no dejar al avatar atascado en idle.
+        if (trailState.introComplete && typeof trailState.onIntroDone === 'function') {
+          const cb2 = trailState.onIntroDone;
+          trailState.onIntroDone = null;
+          console.log('[MapViewWeb][Trail] Watchdog: forzando intro→walk');
+          try { cb2(); } catch (e) { console.log('[MapViewWeb][Trail] Watchdog error: ' + String(e)); }
         }
       }
 
@@ -1355,6 +1562,42 @@ class MapViewWebState extends State<MapViewWeb> {
       const route = avatarState.route;
       if (!route || route.length < 2) return;
 
+      // ── Fase de respawn: shrink → teleport → grow, en vez de teleport
+      // instantáneo al cerrar el loop. Evita el flash visual del salto.
+      if (avatarState.respawning) {
+        avatarState.respawnT += dt / Math.max(avatarState.respawnDuration || 0.35, 0.0001);
+        const rt = Math.min(1.0, avatarState.respawnT);
+        let scaleFactor;
+        if (rt < 0.5) {
+          scaleFactor = 1.0 - rt * 2.0; // 1 → 0
+        } else {
+          if (!avatarState.respawnTeleported) {
+            avatarState.respawnTeleported = true;
+            avatarState.segmentIndex = 0;
+            avatarState.segmentProgress = 0;
+            placeAvatarAt(route[0]);
+            faceAvatarTowards(route[1]);
+            if (avatarState.root && avatarState.targetQuat) {
+              avatarState.root.quaternion.copy(avatarState.targetQuat);
+            }
+            avatarState.segmentDuration = computeSegmentDuration(
+              route[0],
+              route[1],
+              avatarState.speed,
+            );
+          }
+          scaleFactor = (rt - 0.5) * 2.0; // 0 → 1
+        }
+        const base = avatarState.baseScale || avatarState.scale || 1.0;
+        avatarState.root.scale.setScalar(base * scaleFactor);
+        if (rt >= 1.0) {
+          avatarState.respawning = false;
+          avatarState.respawnTeleported = false;
+          avatarState.root.scale.setScalar(base);
+        }
+        return; // mientras respawnea, no avanzamos el segmento
+      }
+
       const i = avatarState.segmentIndex;
       if (i >= route.length - 1) return;
 
@@ -1368,16 +1611,20 @@ class MapViewWebState extends State<MapViewWeb> {
         // Completamos este tramo: avanzar al siguiente
         avatarState.segmentIndex += 1;
         if (avatarState.segmentIndex >= route.length - 1) {
-          // Llegada: clavar posición final y cambiar a idle
-          placeAvatarAt(route[route.length - 1]);
-          avatarState.isWalking = false;
-          avatarState.segmentProgress = 0;
-          clearPathTrail();
-          playIdle();
-          notifyFlutter('onAvatarArrived', {
-            waypoints: route.length,
-          });
-          console.log('[MapViewWeb][Avatar] Llegada a destino');
+          // Llegada al destino: arrancar fase de respawn (shrink+teleport+grow)
+          // en lugar de teleport instantáneo. La animación se repite hasta
+          // que el usuario cambie de mapa/sección/tienda (stopAvatarRoute).
+          if (!avatarState.arrivalNotified) {
+            notifyFlutter('onAvatarArrived', { waypoints: route.length });
+            avatarState.arrivalNotified = true;
+          }
+          avatarState.respawning = true;
+          avatarState.respawnT = 0.0;
+          avatarState.respawnDuration = 0.35;
+          avatarState.respawnTeleported = false;
+          // El clip "Walk" sigue corriendo durante el respawn — no llamar
+          // playWalk() aquí evita el reset/T-pose de 1 frame.
+          console.log('[MapViewWeb][Avatar] Llegada a destino → respawn (loop)');
           return;
         }
         avatarState.segmentProgress = 0;
@@ -1627,9 +1874,26 @@ class MapViewWebState extends State<MapViewWeb> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      _postBridge.register(
+        instanceId: _instanceId,
+        onReady: () {
+          _postBridgeReady = true;
+          debugPrint('[MapViewWeb][PostBridge] iframe lista ($_instanceId)');
+        },
+      );
+    }
+  }
+
+  @override
   void dispose() {
     _webLoadPoller?.cancel();
     _webViewController = null;
+    if (kIsWeb) {
+      _postBridge.dispose();
+    }
     super.dispose();
   }
 
@@ -1684,6 +1948,32 @@ class MapViewWebState extends State<MapViewWeb> {
       await Future.delayed(const Duration(milliseconds: 120));
     }
     return false;
+  }
+
+  /// Web-only: empuja un comando a la iframe vía postMessage.
+  /// Devuelve `true` si se entregó por postMessage; `false` si aún no
+  /// hay handshake con la iframe (el caller debe usar el bootstrap-reload
+  /// como fallback de la primera vez).
+  bool _postCommandToIframe(Map<String, dynamic> cmd) {
+    if (!kIsWeb) return false;
+    if (!_postBridgeReady) return false;
+    final payload = jsonEncode(cmd);
+    return _postBridge.tryPostCommand(payload);
+  }
+
+  /// Espera (con un pequeño timeout) a que la iframe complete el
+  /// handshake `mapview-ready`. Devuelve `true` si ya está lista.
+  Future<bool> _waitPostBridge({
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    if (!kIsWeb) return false;
+    if (_postBridgeReady) return true;
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_postBridgeReady) return true;
+      await Future.delayed(const Duration(milliseconds: 80));
+    }
+    return _postBridgeReady;
   }
 
   /// Sincroniza la calibración del mapa con los valores usados en el editor.
@@ -1778,11 +2068,21 @@ class MapViewWebState extends State<MapViewWeb> {
     final payload = jsonEncode(waypoints);
     final opts = jsonEncode({'speed': speed});
 
-    // Flutter Web: evaluateJavascript con flutter_inappwebview_web NO ejecuta
-    // JS (retorna null sin side-effects). Único camino fiable: embeber el
-    // comando en el HTML vía bootstrap y recargar. El loop infinito que
-    // causaba esto antes se previene con `_routeDispatched` en MapScreen.
+    // Flutter Web: evitamos recargar el HTML — eso es lo que producía el
+    // flash negro al seleccionar tienda. Empujamos el comando a la iframe
+    // por postMessage; sólo si la iframe aún no hizo el handshake caemos
+    // al bootstrap-reload (típicamente sólo en la primera invocación).
     if (kIsWeb) {
+      await _waitPostBridge(timeout: const Duration(seconds: 4));
+      final ok = _postCommandToIframe({
+        'cmd': 'startAvatarRoute',
+        'payload': waypoints,
+        'opts': {'speed': speed},
+      });
+      if (ok) {
+        debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute postMessage (${waypoints.length} wp)');
+        return;
+      }
       _webCommandBootstrap = "window.startAvatarRoute?.($payload,$opts);";
       await _reloadHtmlIfPossible();
       debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute bootstrap (${waypoints.length} wp)');
@@ -1806,6 +2106,7 @@ class MapViewWebState extends State<MapViewWeb> {
   /// Detiene el recorrido en curso y deja al avatar en animación idle.
   Future<void> stopAvatarRoute() async {
     if (_webViewController == null) return;
+    if (kIsWeb && _postCommandToIframe({'cmd': 'stopAvatarRoute'})) return;
     await _waitBridgeReady();
     await _evalJs("window.stopAvatarRoute?.();");
   }
@@ -1813,6 +2114,15 @@ class MapViewWebState extends State<MapViewWeb> {
   /// Coloca el avatar instantáneamente en una coordenada de mundo.
   Future<void> setAvatarAtWorld(double x, double y, double z) async {
     if (_webViewController == null) return;
+    if (kIsWeb &&
+        _postCommandToIframe({
+          'cmd': 'setAvatarAtWorld',
+          'x': x,
+          'y': y,
+          'z': z,
+        })) {
+      return;
+    }
     await _waitBridgeReady();
     await _evalJs("window.setAvatarAtWorld?.($x, $y, $z);");
   }
@@ -1820,6 +2130,7 @@ class MapViewWebState extends State<MapViewWeb> {
   /// Oculta el avatar de la escena (p.ej. al cambiar de piso sin destino).
   Future<void> hideAvatar() async {
     if (_webViewController == null) return;
+    if (kIsWeb && _postCommandToIframe({'cmd': 'hideAvatar'})) return;
     await _waitBridgeReady();
     await _evalJs("window.hideAvatar?.();");
   }
