@@ -15,6 +15,10 @@ import '../utils/node_world_mapping.dart';
 import '../widgets/screen_ad_banners.dart';
 import '../widgets/map_view_web.dart';
 import '../theme/app_theme.dart';
+import '../features/map/controllers/character_animator_controller.dart';
+import '../features/map/controllers/path_renderer_controller.dart';
+import '../features/map/services/store_selection_service.dart';
+import '../features/map/state/map_state_manager.dart';
 
 // URL del avatar 3D (Supabase Storage).
 const String _kAvatarModelUrl =
@@ -86,6 +90,14 @@ class _MapScreenState extends State<MapScreen> {
   // la ruta ya fue enviada al WebView, y se resetea en cada nueva selección.
   bool _routeDispatched = false;
 
+  // ── Orquestación de estado del mapa (Idle / PathRendering / CharacterWalking
+  //    / Arrived). Aísla la ruta dibujada del ciclo del personaje: la ruta
+  //    sólo se borra en `onViewChanged()` o al recibir una nueva selección.
+  late final StoreSelectionService _selectionService;
+  late final PathRendererController _pathRenderer;
+  late final CharacterAnimatorController _characterAnimator;
+  late final MapStateManager _stateManager;
+
   // Calibración del modelo por piso (cargada desde map_calibration en Supabase)
   Map<String, Map<String, double>> _floorCalibrations = {};
 
@@ -94,6 +106,20 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _floorKeys = {for (final f in _kAllFloors) f: GlobalKey<MapViewWebState>()};
     _activatedFloors.add(_selectedFloor); // RG activo desde el inicio
+
+    // Cableado del orquestador de estado del mapa. El dispatcher delega al
+    // método existente que calcula la ruta y la envía al WebView.
+    _selectionService = StoreSelectionService();
+    _pathRenderer = PathRendererController();
+    _characterAnimator = CharacterAnimatorController();
+    _stateManager = MapStateManager(
+      selectionService: _selectionService,
+      pathRenderer: _pathRenderer,
+      characterAnimator: _characterAnimator,
+      routeDispatcher: _dispatchRouteForStore,
+      routeStopper: _stopRouteOnAllFloors,
+    );
+
     _loadData();
     _setupRealtime();
     _categoryScrollController.addListener(_updateCategoryScrollState);
@@ -107,14 +133,21 @@ class _MapScreenState extends State<MapScreen> {
     _realtimeChannel?.unsubscribe();
     _searchController.dispose();
     _categoryScrollController.dispose();
+    // Cambio de vista → limpia ruta + personaje (uno de los dos únicos
+    // triggers autorizados para destruir el trail).
+    _stateManager.onViewChanged();
+    _stateManager.dispose();
+    _selectionService.dispose();
     super.dispose();
   }
 
   void _onKioskChanged() {
     debugPrint('[MapScreen] KioskBus → recargando datos por cambio de kiosco');
     _selectedStoreForRoute = null;
-    _routeDispatched = false;
-    _floorKeys[_selectedFloor]?.currentState?.stopAvatarRoute();
+    // Cambio de kiosco = cambio de origen → la ruta previa pierde sentido.
+    // El state manager se encarga del stop+clear en TODOS los pisos vía
+    // routeStopper; no duplicamos llamadas aquí.
+    _stateManager.onViewChanged();
     _loadData(isSilent: true);
   }
 
@@ -514,8 +547,33 @@ class _MapScreenState extends State<MapScreen> {
       itemId: store.id,
     );
 
-    // Si la tienda está en otro piso, cambiamos la vista primero; la ruta se
-    // dispara cuando el nuevo mapa esté cargado (ver `onMapLoaded`).
+    // El tap no calcula la ruta directamente: emite el evento y deja que el
+    // MapStateManager orqueste (clearPath previo → PathRendering → walking).
+    // El cambio de piso, si aplica, lo hace `_dispatchRouteForStore`.
+    _selectionService.select(store);
+  }
+
+  /// Detiene avatar + trail en todos los pisos que tengan WebView vivo.
+  /// Lo usa el [MapStateManager] como `routeStopper` cuando cambia la vista
+  /// o llega una nueva selección — así nunca queda un loop de caminar
+  /// huérfano corriendo en el piso anterior.
+  Future<void> _stopRouteOnAllFloors() async {
+    for (final floor in _activatedFloors) {
+      final mapView = _floorKeys[floor]?.currentState;
+      if (mapView == null) continue;
+      try {
+        await mapView.stopAvatarRoute();
+      } catch (e) {
+        debugPrint('[MapScreen] stopAvatarRoute($floor) falló: $e');
+      }
+    }
+    _routeDispatched = false;
+  }
+
+  /// Dispatcher inyectado al [MapStateManager]. Devuelve `true` si la ruta
+  /// se envió al WebView (o si está en cola legítimamente esperando que el
+  /// piso destino termine de cargar). `false` significa fallo definitivo.
+  Future<bool> _dispatchRouteForStore(Store store) async {
     final targetFloorName = store.floorLevel;
 
     setState(() {
@@ -528,20 +586,24 @@ class _MapScreenState extends State<MapScreen> {
         _selectedFloor = targetFloorName;
         _activatedFloors.add(targetFloorName);
       });
-      // Si el piso ya estaba cargado (WebView en caché), despachamos la ruta
-      // directamente sin esperar onMapLoaded (que no volverá a disparar).
       if (_loadedFloors.contains(targetFloorName)) {
-        _runAvatarRouteTo(store);
+        return _runAvatarRouteTo(store);
       }
-      // else: onMapLoaded del piso disparará _runAvatarRouteTo al terminar de cargar
-      return;
+      // El piso aún no cargó: `_onFloorMapLoaded` disparará el dispatch
+      // cuando esté listo. Consideramos OK desde el punto de vista del
+      // state manager — sólo notificaremos `onPathRendered` cuando el
+      // WebView realmente lo emita.
+      return true;
     }
 
-    _runAvatarRouteTo(store);
+    return _runAvatarRouteTo(store);
   }
 
-  /// Calcula y lanza la animación del avatar hacia la tienda.
-  void _runAvatarRouteTo(Store store) {
+  /// Calcula y lanza la animación del avatar hacia la tienda. Devuelve
+  /// `true` si la ruta fue enviada al WebView; `false` ante cualquier
+  /// condición que impida arrancar (sin kiosko, ruta vacía, etc.) — el
+  /// state manager usa el booleano para volver a `Idle` con limpieza.
+  Future<bool> _runAvatarRouteTo(Store store) async {
     final nav = _navService;
     if (nav == null || !nav.isReady) {
       debugPrint(
@@ -549,7 +611,7 @@ class _MapScreenState extends State<MapScreen> {
         '(nav=${nav != null}, ready=${nav?.isReady ?? false}). '
         'Reintentaré cuando termine de cargar.',
       );
-      return;
+      return false;
     }
     if (_currentKioskNodeId == null || _currentKioskNodeId!.isEmpty) {
       debugPrint(
@@ -568,7 +630,7 @@ class _MapScreenState extends State<MapScreen> {
           ),
         );
       }
-      return;
+      return false;
     }
 
     final currentFloorNum = _selectedFloor;
@@ -598,7 +660,7 @@ class _MapScreenState extends State<MapScreen> {
       }
       // Al menos posicionamos el avatar en el kiosko si tenemos su nodo.
       _placeAvatarAtKiosk();
-      return;
+      return false;
     }
 
     // La cámara la posiciona el JS (fitCameraToRoute) para encuadrar el
@@ -607,7 +669,8 @@ class _MapScreenState extends State<MapScreen> {
     // Marcar ANTES del envío: en web la recarga de HTML puede disparar
     // onMapLoaded muy rápido y llegar antes de que esta línea se ejecute.
     _routeDispatched = true;
-    mapView?.startAvatarRoute(route.waypoints);
+    await mapView?.startAvatarRoute(route.waypoints);
+    return true;
   }
 
   void _placeAvatarAtKiosk() {
@@ -1032,8 +1095,18 @@ class _MapScreenState extends State<MapScreen> {
                       onError: () {
                         debugPrint('[MapScreen] Error cargando mapa de $floor');
                       },
+                      onPathRendered: (steps) {
+                        // Solo el piso visible debe transicionar el estado;
+                        // pisos lazy en background pueden disparar callbacks
+                        // residuales si llegasen a precargarse.
+                        if (floor != _selectedFloor) return;
+                        _stateManager.notifyPathRendered(stepCount: steps);
+                      },
                       onAvatarArrived: () {
-                        debugPrint('[MapScreen] Avatar llegó a destino');
+                        if (floor != _selectedFloor) return;
+                        // Importante: NO limpiamos la ruta aquí. El loop de
+                        // caminar continúa y el trail permanece visible.
+                        _stateManager.notifyCharacterArrived();
                       },
                     );
                   }).toList(),
@@ -1083,10 +1156,15 @@ class _MapScreenState extends State<MapScreen> {
                   // Si el piso ya estaba cargado, actualizamos el avatar
                   // directamente sin esperar onMapLoaded.
                   if (_loadedFloors.contains(floor)) {
-                    if (_selectedStoreForRoute != null) {
-                      _routeDispatched = false;
-                      _runAvatarRouteTo(_selectedStoreForRoute!);
+                    final active = _selectedStoreForRoute;
+                    if (active != null) {
+                      // Cambio de piso = vista distinta. Re-emitimos por el
+                      // bus de selección para que el state manager limpie y
+                      // redibuje el trail en el nuevo piso (un único punto
+                      // de control para clear+render).
+                      _selectionService.select(active);
                     } else {
+                      _stateManager.onViewChanged();
                       _placeAvatarAtKiosk();
                     }
                   }

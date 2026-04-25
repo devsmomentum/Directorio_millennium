@@ -13,8 +13,6 @@ import 'theme_manager.dart';
 import 'services/telemetry_service.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
   // En release, si algo falla antes de runApp, la app suele quedarse “en blanco”.
   // Estos handlers fuerzan una UI de error visible para poder diagnosticar en el dispositivo.
   ErrorWidget.builder = (details) => _FatalErrorScreen(
@@ -32,6 +30,12 @@ Future<void> main() async {
   };
 
   await runZonedGuarded(() async {
+    // CRÍTICO: ensureInitialized() debe correr dentro de la MISMA zona que
+    // runApp(). Si se llama afuera (zona root) y runApp dentro de
+    // runZonedGuarded, Flutter dispara "Zone mismatch" y el comportamiento
+    // de los callbacks queda inconsistente.
+    WidgetsFlutterBinding.ensureInitialized();
+
     // Inicializaciones específicas por plataforma.
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
       MediaKit.ensureInitialized();

@@ -36,6 +36,12 @@ class MapViewWeb extends StatefulWidget {
   /// Callback cuando el avatar llega al último waypoint de la ruta.
   final VoidCallback? onAvatarArrived;
 
+  /// Callback cuando la ruta de pasos terminó de dibujarse en el piso.
+  /// Recibe la cantidad de "pasos" (dots) que se desplegaron. Se dispara
+  /// **antes** de que el modelo 3D arranque a caminar, permitiendo al
+  /// orquestador de estado (MapStateManager) transicionar a CharacterWalking.
+  final void Function(int stepCount)? onPathRendered;
+
   const MapViewWeb({
     super.key,
     required this.modelUrl,
@@ -43,6 +49,7 @@ class MapViewWeb extends StatefulWidget {
     this.onMapLoaded,
     this.onError,
     this.onAvatarArrived,
+    this.onPathRendered,
   });
 
   @override
@@ -506,14 +513,54 @@ class MapViewWebState extends State<MapViewWeb> {
       trailState.onIntroDone = null;
     }
 
+    // ── Perfil de pisada (left/right) en shape-space ──────────────────
+    // Eje X = lateral (X+ = lado derecho del caminante).
+    // Eje Y = longitudinal (Y+ = talón/atrás, Y- = punta/adelante).
+    // Proporciones reales: ancho ≈ 0.42 × largo. archSign +1 = pie izquierdo
+    // (arco indentado del lado +X = derecha del caminante); -1 = pie derecho.
+    function makeFootShape(archSign) {
+      const W = 0.21; // half-width (envelope ≈ 0.42 unidades)
+      const hL = 0.5; // half-length (envelope = 1.0)
+      const s = archSign;
+      const sh = new THREE.Shape();
+      sh.moveTo(0, hL); // talón centro
+      // Talón exterior y baja por el costado
+      sh.bezierCurveTo(-s*W*1.10, hL*0.96, -s*W*1.15, hL*0.55, -s*W*0.95, hL*0.25);
+      sh.bezierCurveTo(-s*W*0.85, -hL*0.10, -s*W*0.85, -hL*0.55, -s*W*0.65, -hL*0.90);
+      // Punta exterior → cruza al lado interior
+      sh.bezierCurveTo(-s*W*0.45, -hL*1.00, -s*W*0.10, -hL*1.02, s*W*0.20, -hL*0.98);
+      // Bulto del dedo gordo (lado interior)
+      sh.bezierCurveTo(s*W*0.55, -hL*0.96, s*W*0.62, -hL*0.80, s*W*0.55, -hL*0.55);
+      // Arco indentado (firma de la huella)
+      sh.bezierCurveTo(s*W*0.30, -hL*0.15, s*W*0.30, hL*0.10, s*W*0.55, hL*0.30);
+      // Talón interior cerrando al inicio
+      sh.bezierCurveTo(s*W*1.00, hL*0.60, s*W*1.00, hL*0.96, 0, hL);
+      return sh;
+    }
+
     function spawnPathTrail(waypoints) {
       clearPathTrail();
-      if (!waypoints || waypoints.length < 2) return;
+      if (!waypoints || waypoints.length < 2) {
+        console.log('[MapViewWeb][Trail] skip: waypoints=' + (waypoints ? waypoints.length : 0));
+        return;
+      }
+      console.log(
+        '[MapViewWeb][Trail] spawn wp=' + waypoints.length
+        + ' first=(' + waypoints[0].x.toFixed(2) + ',' + waypoints[0].y.toFixed(2) + ',' + waypoints[0].z.toFixed(2) + ')'
+        + ' last=(' + waypoints[waypoints.length-1].x.toFixed(2) + ',' + waypoints[waypoints.length-1].y.toFixed(2) + ',' + waypoints[waypoints.length-1].z.toFixed(2) + ')'
+      );
 
-      // Offset mínimo sobre el piso para evitar z-fighting.
-      // depthTest:false igual garantiza visibilidad, pero el offset
-      // mantiene el trail visualmente "pegado" al suelo desde cualquier ángulo.
-      const Y_FLOOR = 0.028;
+      // Offset sobre el piso. Antes era 0.028 (mínimo anti z-fighting), pero
+      // si el waypoint Y cae por debajo de la malla del piso (calibración con
+      // ox/oy/oz, mallas con relieve, escaleras, podios), el trail termina
+      // sepultado dentro del modelo. Subimos el trail a una altura proporcional
+      // al span vertical del mapa: floor + 1.5 % de mapSize.y, mínimo 0.35 m.
+      // Como además la línea/huellas usan depthTest:false, el render queda
+      // garantizado por encima del modelo en cualquier ángulo de cámara.
+      const _mapSize = mapBounds
+        ? mapBounds.getSize(new THREE.Vector3())
+        : new THREE.Vector3(30, 6, 30);
+      const Y_FLOOR = Math.max(_mapSize.y * 0.015, 0.35);
 
       // ── Línea punteada animada (marching-ants) ──────────────────────
       // Densificamos la polilínea para que la animación de "dibujado"
@@ -538,7 +585,6 @@ class MapViewWebState extends State<MapViewWeb> {
       pts.push(basePts[basePts.length - 1]);
 
       const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-      lineGeo.computeLineDistances(); // obligatorio para LineDashedMaterial
       // Arrancamos sin nada visible: la fase de intro ampliará drawRange
       // hasta cubrir todos los vértices y ahí "se dibuja" la ruta en el piso.
       lineGeo.setDrawRange(0, 0);
@@ -547,53 +593,118 @@ class MapViewWebState extends State<MapViewWeb> {
         dashSize: 0.20,
         gapSize: 0.12,
         transparent: true,
-        opacity: 0.92, // un poco más fuerte para que "resalte" al dibujarse
+        opacity: 0.0, // crece durante el intro
         depthTest: false,
         depthWrite: false,
       });
       const pathLine = new THREE.Line(lineGeo, lineMat);
-      pathLine.renderOrder = 995;
+      // ¡CRÍTICO! computeLineDistances vive en THREE.Line, NO en
+      // BufferGeometry. Llamarlo en la geometría tira TypeError, el
+      // try/catch de startAvatarRoute lo silencia y el trail nunca aparece
+      // — bug que mantuvo las huellas invisibles hasta que el log lo expuso.
+      pathLine.computeLineDistances();
+      // renderOrder muy alto: garantiza que el trail se dibuja después de
+      // cualquier malla transparente del modelo del mapa (escaparates,
+      // pisos con tinte, mobiliario translúcido), evitando que un material
+      // del .glb se intercale por encima.
+      pathLine.renderOrder = 9995;
       pathLine.frustumCulled = false;
       scene.add(pathLine);
       trailState.line = pathLine;
       trailState.lineMat = lineMat;
       trailState.totalLineVerts = pts.length;
 
-      // ── Puntos intermedios (máx. 25 para no saturar Sunmi) ──────────
-      const dotBaseGeo = new THREE.CircleGeometry(0.065, 10);
-      const MAX_DOTS = 25;
-      const totalIntermediate = waypoints.length - 2; // excluir inicio y destino
-      const step = totalIntermediate <= MAX_DOTS
-        ? 1
-        : Math.ceil(totalIntermediate / MAX_DOTS);
+      // ── Huellas (footprints) alternadas izq/dcha a lo largo del trazo ──
+      // Las dimensiones se calculan a partir del bounding box del mapa para
+      // que la huella sea proporcional a la estructura real (un mall de
+      // 60 m no necesita el mismo tamaño que un piso pequeño de 15 m).
+      const mapSpan = mapBounds
+        ? Math.max(
+            mapBounds.getSize(new THREE.Vector3()).x,
+            mapBounds.getSize(new THREE.Vector3()).z,
+            6.0,
+          )
+        : 30.0;
+      // ~3.5 % del span máximo, acotado entre 0.55 m y 1.6 m.
+      const FOOT_LEN = Math.min(Math.max(mapSpan * 0.035, 0.55), 1.6);
+      const FOOT_WID = FOOT_LEN * 0.55;
+      const FOOT_OFFSET = FOOT_WID * 1.05;
+      const FOOT_SPACING = FOOT_LEN * 1.6;
+      const MAX_FOOTS = 80;      // techo defensivo para mapas largos
 
-      const lastIdx = Math.max(waypoints.length - 1, 1);
-      for (let i = 1; i < waypoints.length - 1; i += step) {
-        const w = waypoints[i];
-        const dot = new THREE.Mesh(
-          dotBaseGeo.clone(),
-          new THREE.MeshBasicMaterial({
-            color: 0xFF007A,
+      const footGeo = new THREE.PlaneGeometry(FOOT_WID, FOOT_LEN);
+
+      // Recorrido acumulado: vamos sembrando huellas cada FOOT_SPACING.
+      let traveled = 0;
+      let nextSeed = FOOT_SPACING * 0.5; // primera huella un poco delante
+      let sideToggle = 0;
+      let placed = 0;
+      let totalLen = 0;
+      for (let i = 0; i < basePts.length - 1; i++) {
+        totalLen += basePts[i].distanceTo(basePts[i + 1]);
+      }
+      const lastIdx = Math.max(totalLen, 0.001);
+
+      for (let i = 0; i < basePts.length - 1 && placed < MAX_FOOTS; i++) {
+        const a = basePts[i];
+        const b = basePts[i + 1];
+        const segLen = a.distanceTo(b);
+        if (segLen < 1e-4) continue;
+        const dirX = (b.x - a.x) / segLen;
+        const dirZ = (b.z - a.z) / segLen;
+        // Perpendicular en el plano XZ (rotación 90°): (-dz, dx)
+        const perpX = -dirZ;
+        const perpZ = dirX;
+        // Ángulo en torno al eje Y para orientar la huella hacia el avance.
+        const yaw = Math.atan2(dirX, dirZ);
+
+        while (nextSeed <= traveled + segLen && placed < MAX_FOOTS) {
+          const t = (nextSeed - traveled) / segLen;
+          const cx = a.x + (b.x - a.x) * t;
+          const cy = a.y + (b.y - a.y) * t;
+          const cz = a.z + (b.z - a.z) * t;
+          const side = (sideToggle % 2 === 0) ? 1 : -1;
+          const fx = cx + perpX * FOOT_OFFSET * side;
+          const fz = cz + perpZ * FOOT_OFFSET * side;
+
+          const footMat = new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
             transparent: true,
-            opacity: 0.0, // arranca invisible; el intro lo va revelando
+            opacity: 0.0, // se revela durante el intro
             depthTest: false,
             depthWrite: false,
             side: THREE.DoubleSide,
-          }),
-        );
-        dot.position.set(w.x, w.y + Y_FLOOR, w.z);
-        dot.rotation.x = -Math.PI / 2; // plano horizontal (XZ)
-        dot.renderOrder = 996;
-        dot.frustumCulled = false;
-        scene.add(dot);
-        trailState.dots.push(dot);
-        trailState.dotKeys.push(i / lastIdx);
+          });
+          const foot = new THREE.Mesh(footGeo, footMat);
+          // Acostada en el suelo, alineada con la dirección del camino.
+          // Tras rotation.x = -PI/2, el eje "alto" del plano (FOOT_LEN)
+          // queda a lo largo de Z mundial y rotation.z rota alrededor de
+          // Y mundial → yaw positivo apunta la huella hacia el avance.
+          foot.rotation.x = -Math.PI / 2;
+          foot.rotation.z = yaw;
+          foot.position.set(fx, cy + Y_FLOOR, fz);
+          foot.renderOrder = 9996;
+          foot.frustumCulled = false;
+          scene.add(foot);
+          trailState.dots.push(foot);
+          trailState.dotKeys.push(Math.min(nextSeed / lastIdx, 1));
+
+          nextSeed += FOOT_SPACING;
+          sideToggle += 1;
+          placed += 1;
+        }
+        traveled += segLen;
       }
 
       // ── Marcador de destino (círculo blanco + halo rosa) ────────────
+      // Radios proporcionales al span del mapa para mantener legibilidad
+      // tanto en plantas pequeñas (PL ≈ 12 m) como en RG (>50 m).
+      const DEST_RADIUS = Math.min(Math.max(mapSpan * 0.018, 0.30), 0.85);
+      const HALO_INNER = DEST_RADIUS * 1.05;
+      const HALO_OUTER = DEST_RADIUS * 1.55;
       const dest = waypoints[waypoints.length - 1];
       const destDot = new THREE.Mesh(
-        new THREE.CircleGeometry(0.22, 18),
+        new THREE.CircleGeometry(DEST_RADIUS, 24),
         new THREE.MeshBasicMaterial({
           color: 0xFFFFFF,
           transparent: true,
@@ -605,18 +716,18 @@ class MapViewWebState extends State<MapViewWeb> {
       );
       destDot.position.set(dest.x, dest.y + Y_FLOOR, dest.z);
       destDot.rotation.x = -Math.PI / 2;
-      destDot.renderOrder = 999;
+      destDot.renderOrder = 9999;
       destDot.frustumCulled = false;
       scene.add(destDot);
       trailState.destDot = destDot;
 
       // Halo exterior rosa alrededor del destino
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(0.23, 0.32, 18),
+        new THREE.RingGeometry(HALO_INNER, HALO_OUTER, 24),
         new THREE.MeshBasicMaterial({
           color: 0xFF007A,
           transparent: true,
-          opacity: 0.0, // también se revela al final del intro
+          opacity: 0.0, // se revela al final del intro
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
@@ -624,10 +735,21 @@ class MapViewWebState extends State<MapViewWeb> {
       );
       halo.position.set(dest.x, dest.y + Y_FLOOR, dest.z);
       halo.rotation.x = -Math.PI / 2;
-      halo.renderOrder = 998;
+      halo.renderOrder = 9998;
       halo.frustumCulled = false;
       scene.add(halo);
       trailState.destHalo = halo;
+
+      // Log final: confirma cuántos elementos se añadieron a la escena y el
+      // Y_FLOOR efectivo. Si placed=0, la ruta es muy corta vs FOOT_SPACING;
+      // si yFloor es 0 o negativo, el cálculo desde mapBounds está mal.
+      console.log(
+        '[MapViewWeb][Trail] done: line+' + placed + ' huellas + dest, '
+        + 'Y_FLOOR=' + Y_FLOOR.toFixed(3)
+        + ' FOOT_LEN=' + FOOT_LEN.toFixed(2)
+        + ' DEST_R=' + DEST_RADIUS.toFixed(2)
+        + ' totalLen=' + totalLen.toFixed(2)
+      );
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1501,12 +1623,14 @@ class MapViewWebState extends State<MapViewWeb> {
           // Opacidad de la línea creciendo de 0 a 0.88
           trailState.lineMat.opacity = 0.88 * eased;
 
-          // Revelar dots conforme el "frente" de dibujado los alcanza
+          // Revelar huellas conforme el "frente" de dibujado las alcanza.
+          // Pico de opacidad 1.0 — antes 0.60/0.95 — para que se vean nítidas
+          // sobre cualquier color de piso del mall.
           for (let i = 0; i < trailState.dots.length; i++) {
             const dot = trailState.dots[i];
             const key = trailState.dotKeys[i] || 0;
             const local = THREE.MathUtils.clamp((eased - key) / 0.08, 0, 1);
-            dot.material.opacity = 0.60 * local;
+            dot.material.opacity = 1.0 * local;
           }
 
           // Destino: aparece en el último tramo del intro
@@ -1524,6 +1648,12 @@ class MapViewWebState extends State<MapViewWeb> {
             if (trailState.line && trailState.line.geometry && trailState.totalLineVerts > 0) {
               trailState.line.geometry.setDrawRange(0, trailState.totalLineVerts);
             }
+            // Notificar a Flutter que la ruta ya está dibujada en el piso.
+            // El MapStateManager usa esta señal para transicionar de
+            // PathRendering → CharacterWalking (ruta visible antes de andar).
+            try {
+              notifyFlutter('onPathRendered', { steps: trailState.dots.length });
+            } catch (_) { /* noop */ }
             const cb = trailState.onIntroDone;
             trailState.onIntroDone = null;
             if (typeof cb === 'function') {
@@ -1744,8 +1874,13 @@ class MapViewWebState extends State<MapViewWeb> {
         const size = mapBounds.getSize(new THREE.Vector3());
         const radiusXZ = Math.max(size.x, size.z) * 0.5;
 
-        minDistance = Math.max(radiusXZ * 0.32, 1.2);
-        maxDistance = Math.max(radiusXZ * 0.95, minDistance + 2.4);
+        // Antes: radiusXZ * 0.32 → la cámara nunca podía acercarse a una
+        // tienda concreta en un mall grande. Ahora 8 % del radio (mínimo
+        // 0.4 m) permite "entrar" al pasillo y leer las pisadas/etiquetas,
+        // sin perder el techo de zoom-out (radiusXZ * 1.05) que se necesita
+        // para ver el mapa entero al cargar.
+        minDistance = Math.max(radiusXZ * 0.08, 0.4);
+        maxDistance = Math.max(radiusXZ * 1.05, minDistance + 2.4);
         controls.minDistance = minDistance;
         controls.maxDistance = maxDistance;
 
@@ -2225,6 +2360,20 @@ class MapViewWebState extends State<MapViewWeb> {
                 callback: (args) {
                   debugPrint('[MapViewWeb][Web→Flutter] Avatar llegó: $args');
                   widget.onAvatarArrived?.call();
+                  return null;
+                },
+              );
+
+              controller.addJavaScriptHandler(
+                handlerName: 'onPathRendered',
+                callback: (args) {
+                  int steps = 0;
+                  if (args.isNotEmpty && args.first is Map) {
+                    final raw = (args.first as Map)['steps'];
+                    if (raw is num) steps = raw.toInt();
+                  }
+                  debugPrint('[MapViewWeb][Web→Flutter] Ruta dibujada (steps=$steps)');
+                  widget.onPathRendered?.call(steps);
                   return null;
                 },
               );
