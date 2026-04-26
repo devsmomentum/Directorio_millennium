@@ -131,34 +131,62 @@ class MapViewWebState extends State<MapViewWeb> {
       touch-action: none;
     }
 
-    /* Botón de centrado mejorado estilo App moderna */
-    #center-view-btn {
+    /* Contenedor de controles del mapa */
+    #map-controls {
       position: absolute;
       bottom: 16px;
       right: 16px;
       z-index: 40;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Media query para pantallas pequeñas (landscape o height corta) */
+    @media (max-height: 500px), (max-width: 500px) {
+      #map-controls {
+        flex-direction: row;
+        bottom: 12px;
+        right: 12px;
+        flex-wrap: wrap-reverse;
+        justify-content: flex-end;
+      }
+      .control-btn {
+        width: 42px !important;
+        height: 42px !important;
+        background-size: 20px 20px !important;
+      }
+    }
+
+    .control-btn {
       width: 48px;
       height: 48px;
-      border: 2px solid rgba(255, 0, 122, 0.4); /* Color primario con transparencia */
+      border: 2px solid rgba(255, 0, 122, 0.4);
       border-radius: 50%;
-      background-color: #212121; /* surfaceLight */
-      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23FF007A"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>');
+      background-color: #212121;
       background-size: 24px 24px;
       background-position: center;
       background-repeat: no-repeat;
       box-shadow: 0 4px 12px rgba(255, 0, 122, 0.2), 0 4px 8px rgba(0, 0, 0, 0.4);
       cursor: pointer;
-      color: transparent; /* Ocultar texto */
+      color: transparent;
       font-size: 0;
-      transition: transform 0.2s ease, background-color 0.2s ease;
+      transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
       user-select: none;
       -webkit-user-select: none;
       touch-action: manipulation;
     }
 
-    #center-view-btn:active {
+    .control-btn:active {
       transform: scale(0.92);
       background-color: #2a2a2a;
+    }
+
+    .control-btn.active-mode {
+      background-color: #3a1528; /* Tinte rosado fuerte */
+      border: 2px solid #FF007A;
+      box-shadow: 0 0 12px rgba(255, 0, 122, 0.8);
+      transform: scale(1.05);
     }
 
     /* Panel de calibración (debug) */
@@ -204,7 +232,22 @@ class MapViewWebState extends State<MapViewWeb> {
   <div id="viewer-container">
     <canvas id="map-canvas"></canvas>
 
-    <button id="center-view-btn" type="button" aria-label="Centrar mapa"></button>
+    <div id="map-controls">
+      <!-- Zoom In (+) -->
+      <button id="zoom-in-btn" class="control-btn" type="button" aria-label="Acercar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z%22/></svg>');"></button>
+      
+      <!-- Zoom Out (-) -->
+      <button id="zoom-out-btn" class="control-btn" type="button" aria-label="Alejar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M19 13H5v-2h14v2z%22/></svg>');"></button>
+      
+      <!-- Pan (Mover) -->
+      <button id="pan-btn" class="control-btn" type="button" aria-label="Mover mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z%22/></svg>');"></button>
+      
+      <!-- Rotate (Girar) -->
+      <button id="rotate-btn" class="control-btn active-mode" type="button" aria-label="Girar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M15.55 5.55L11 1v3C7.06 4 4 7.06 4 11s3.06 7 7 7c1.53 0 2.92-.49 4.07-1.32l-1.5-1.5C12.83 15.68 11.95 16 11 16c-2.76 0-5-2.24-5-5s2.24-5 5-5v3l4.55-4.45zM19.93 11c-.17-1.39-.72-2.65-1.55-3.68l-1.46 1.46C17.58 9.48 17.92 10.2 17.98 11h1.95zm-1.51 4.12l1.46 1.46C18.86 17.7 17.39 18.73 15.74 19.16l-.42-1.92c1.23-.33 2.32-.98 3.1-1.8z%22/></svg>');"></button>
+
+      <!-- Center View -->
+      <button id="center-view-btn" class="control-btn" type="button" aria-label="Centrar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z%22/></svg>');"></button>
+    </div>
 
     <div id="calib-panel">
       <h4>Calibración mapa (C)</h4>
@@ -286,15 +329,15 @@ class MapViewWebState extends State<MapViewWeb> {
     });
 
     // ── Interaction para resetear timeout ──
-    let lastInteractionTime = 0;
+    let lastInteractionTime = Date.now();
     function handleInteraction() {
       const now = Date.now();
       if (now - lastInteractionTime > 1000) { 
-        lastInteractionTime = now;
         if (typeof notifyFlutter === 'function') {
           notifyFlutter('onInteraction', 'ok');
         }
       }
+      lastInteractionTime = now;
     }
     window.addEventListener('pointerdown', handleInteraction, { passive: true });
     window.addEventListener('pointermove', handleInteraction, { passive: true });
@@ -316,6 +359,10 @@ class MapViewWebState extends State<MapViewWeb> {
     const container = document.getElementById('viewer-container');
     const canvas = document.getElementById('map-canvas');
     const centerViewBtn = document.getElementById('center-view-btn');
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const panBtn = document.getElementById('pan-btn');
+    const rotateBtn = document.getElementById('rotate-btn');
     const calibPanel = document.getElementById('calib-panel');
     const calibScale = document.getElementById('calib-scale');
     const calibOx = document.getElementById('calib-ox');
@@ -955,8 +1002,56 @@ class MapViewWebState extends State<MapViewWeb> {
     controls.minPolarAngle = THREE.MathUtils.degToRad(6);
     controls.maxPolarAngle = THREE.MathUtils.degToRad(86);
     controls.minDistance = 3.0;
-    controls.maxDistance = 18.0;
+    controls.maxDistance = 50.0;
     controls.target.set(0, 0, 0);
+
+    // Funciones para botones adicionales
+    function setPanMode() {
+      controls.enablePan = true;
+      controls.enableRotate = false;
+      controls.touches.ONE = THREE.TOUCH.PAN;
+      controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+      controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+      panBtn.classList.add('active-mode');
+      rotateBtn.classList.remove('active-mode');
+    }
+
+    function setRotateMode() {
+      controls.enablePan = false;
+      controls.enableRotate = true;
+      controls.touches.ONE = THREE.TOUCH.ROTATE;
+      controls.touches.TWO = THREE.TOUCH.DOLLY;
+      controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      rotateBtn.classList.add('active-mode');
+      panBtn.classList.remove('active-mode');
+    }
+
+    function zoomIn() {
+      const currentDist = camera.position.distanceTo(controls.target);
+      const newDist = Math.max(controls.minDistance, currentDist * 0.6);
+      zoomToDistance(newDist);
+    }
+
+    function zoomOut() {
+      const currentDist = camera.position.distanceTo(controls.target);
+      const newDist = Math.min(controls.maxDistance, currentDist * 1.5);
+      zoomToDistance(newDist);
+    }
+
+    function zoomToDistance(newDist) {
+      const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+      offset.normalize().multiplyScalar(newDist);
+      const nextCamPos = new THREE.Vector3().copy(controls.target).add(offset);
+      startCameraTransition(nextCamPos, controls.target);
+    }
+
+    zoomInBtn.addEventListener('click', zoomIn);
+    zoomOutBtn.addEventListener('click', zoomOut);
+    panBtn.addEventListener('click', setPanMode);
+    rotateBtn.addEventListener('click', setRotateMode);
+
+    // Iniciar en modo Rotar por defecto
+    setRotateMode();
 
     // Variables para la transición suave de la cámara
     let isCameraTransitioning = false;
@@ -982,7 +1077,7 @@ class MapViewWebState extends State<MapViewWeb> {
     let mapBounds = null;
     let mapCenter = new THREE.Vector3(0, 0, 0);
     let minDistance = 3.0;
-    let maxDistance = 18.0;
+    let maxDistance = 50.0;
     let minTargetX = -10.0;
     let maxTargetX = 10.0;
     let minTargetZ = -10.0;
@@ -1105,20 +1200,29 @@ class MapViewWebState extends State<MapViewWeb> {
       const radiusZ = Math.max((maxTargetZ - minTargetZ) * 0.5, 1.0);
       const baseRadius = Math.max(radiusX, radiusZ);
       const distance = THREE.MathUtils.clamp(
-        baseRadius * 0.92,
+        baseRadius * 1.5,
         minDistance + 0.2,
         maxDistance - 0.2,
       );
 
-      const nextTarget = mapCenter.clone();
+      // Centrar en el avatar (kiosco) si está disponible, sino al centro del mapa
+      let targetCenter = mapCenter.clone();
+      if (typeof avatarState !== 'undefined' && avatarState.root && avatarState.ready) {
+        targetCenter.copy(avatarState.root.position);
+      }
+
+      const nextTarget = targetCenter.clone();
+      
+      // La cámara inclinada (no totalmente desde arriba)
+      // Y = distance * 0.5, Z = distance * 0.85 => forma un ángulo más inclinado
       const nextCamPos = new THREE.Vector3(
-        mapCenter.x,
-        mapCenter.y + distance,
-        mapCenter.z + distance * 0.2,
+        targetCenter.x,
+        targetCenter.y + distance * 0.5,
+        targetCenter.z + distance * 0.85,
       );
 
       startCameraTransition(nextCamPos, nextTarget);
-      console.log('[MapViewWeb] Vista superior centrada');
+      console.log('[MapViewWeb] Vista centrada en kiosco/mapa');
     }
 
     function centerCameraOnPoint(point) {
@@ -1642,6 +1746,11 @@ class MapViewWebState extends State<MapViewWeb> {
       const pz = Number(z);
       if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
       placeAvatarAt({ x: px, y: py, z: pz });
+      
+      // Centrar la cámara en el kiosco si no estamos caminando ni hay animación de ruta
+      if (!avatarState.isWalking && (!trailState.lineMat || trailState.introComplete)) {
+        centerTopView();
+      }
     }
 
     function hideAvatar() {
@@ -1994,6 +2103,22 @@ class MapViewWebState extends State<MapViewWeb> {
 
       // Clamp delta para evitar saltos si la pestaña estuvo en background
       const dt = Math.min(clock.getDelta(), 0.1);
+
+      // Lógica de auto rotación por inactividad
+      const now = Date.now();
+      const isRouteBuilding = trailState.lineMat && !trailState.introComplete;
+      const isLoadingAnimation = avatarState.isWalking || isCameraTransitioning || isRouteBuilding;
+
+      if (isLoadingAnimation) {
+        lastInteractionTime = now;
+      }
+
+      if (now - lastInteractionTime > 5000 && !isLoadingAnimation) {
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.5;
+      } else {
+        controls.autoRotate = false;
+      }
 
       // Lógica de transición suave (Ease-Out Cubic)
       if (isCameraTransitioning) {
