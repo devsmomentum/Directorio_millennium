@@ -486,7 +486,42 @@ class MapViewWebState extends State<MapViewWeb> {
       speed: 1.2,               // unidades/segundo por defecto
       isWalking: false,
       targetQuat: new THREE.Quaternion(),
+      fadeMaterials: [],         // materiales del avatar (para fade en respawn)
     };
+
+    // Aplica una opacidad uniforme al avatar respetando la opacidad original
+    // de cada material. Solo activa el modo transparent durante el fade y lo
+    // restaura al terminar — así el resto del tiempo los materiales se
+    // dibujan opacos (sin z-fighting entre las mallas del personaje, que era
+    // la causa real del parpadeo durante el caminar).
+    function setAvatarOpacity(alpha) {
+      const mats = avatarState.fadeMaterials;
+      if (!mats || mats.length === 0) return;
+      const a = Math.max(0, Math.min(1, alpha));
+      const fading = a < 0.999;
+      for (let i = 0; i < mats.length; i++) {
+        const m = mats[i];
+        const ud = m.userData || {};
+        const base = (typeof ud.baseOpacity === 'number') ? ud.baseOpacity : 1.0;
+        if (fading) {
+          if (!m.transparent) {
+            m.transparent = true;
+            m.depthWrite = false;
+            m.needsUpdate = true;
+          }
+          m.opacity = base * a;
+        } else {
+          // Restaurar exactamente al estado original (evita "ghosting" o
+          // shaders en modo transparent en ticks normales de caminar).
+          m.opacity = base;
+          if (m.transparent !== !!ud.baseTransparent) {
+            m.transparent = !!ud.baseTransparent;
+            m.needsUpdate = true;
+          }
+          m.depthWrite = (ud.baseDepthWrite !== false);
+        }
+      }
+    }
 
     // Waypoint markers (debug): esferas para verificar alineación con el mapa.
     let waypointMarkers = [];
@@ -1360,13 +1395,27 @@ class MapViewWebState extends State<MapViewWeb> {
         return;
       }
 
-      // Detener acción previa inmediatamente (sin fade) para evitar conflictos de weight
-      if (avatarState.activeAction && avatarState.activeAction !== action) {
-        avatarState.activeAction.stop();
+      // Mismo clip que sigue activo pero pausado (ej. idle "pausa" sobre Walk
+      // cuando el GLB no trae clip de Idle): basta con quitar la pausa para
+      // que la animación retome desde el frame congelado, sin reset a t=0.
+      if (action === avatarState.activeAction && action.paused) {
+        action.paused = false;
+        if (!action.isRunning()) action.play();
+        return;
       }
 
+      // Crossfade suave (~120 ms) hacia la nueva acción. Mejor que un stop()
+      // brusco: evita el "pop" visual cuando se cambia de Walk a Idle o
+      // viceversa. Si la acción previa no existe, simplemente arrancamos.
+      const prev = avatarState.activeAction;
       avatarState.activeAction = action;
-      action.reset().play();
+      if (prev && prev !== action) {
+        action.reset();
+        action.play();
+        action.crossFadeFrom(prev, 0.12, false);
+      } else {
+        action.reset().play();
+      }
     }
 
     function playWalk() {
@@ -1426,6 +1475,13 @@ class MapViewWebState extends State<MapViewWeb> {
           // y compararlo con el tamaño del mapa (si existe).
           root.scale.setScalar(1.0);
 
+          // IMPORTANTE: dejar los materiales tal como vienen del .glb.
+          // Forzar transparent=true sobre todas las mallas del avatar produce
+          // artefactos de orden de dibujado (z-fighting entre cuerpo / ropa /
+          // pelo) que se perciben como un PARPADEO continuo durante el
+          // caminar. Solo conservamos la lista de materiales para poder
+          // tocarlos puntualmente (ej. respawn) sin alterar su aspecto base.
+          const fadeMaterials = [];
           root.traverse(function(obj) {
             if (!obj.isMesh) return;
             obj.castShadow = false;
@@ -1434,11 +1490,15 @@ class MapViewWebState extends State<MapViewWeb> {
             if (obj.material) {
               const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
               mats.forEach(function(m) {
-                m.transparent = (m.transparent !== undefined && m.transparent !== null) ? m.transparent : false;
-                m.needsUpdate = true;
+                m.userData = m.userData || {};
+                m.userData.baseOpacity = (typeof m.opacity === 'number') ? m.opacity : 1.0;
+                m.userData.baseTransparent = !!m.transparent;
+                m.userData.baseDepthWrite = (m.depthWrite !== false);
+                fadeMaterials.push(m);
               });
             }
           });
+          avatarState.fadeMaterials = fadeMaterials;
 
           // ── Auto-ajuste para que el avatar sea visible en el mapa ──
           // Problema típico: el origen del rig está en la pelvis → el modelo
@@ -1563,6 +1623,61 @@ class MapViewWebState extends State<MapViewWeb> {
       return distance / Math.max(speed, 0.01);
     }
 
+    // Densifica la ruta del avatar: el A* devuelve waypoints sparse (a veces
+    // 2-3 nodos para tramos largos), por lo que los giros se sienten "a saltos"
+    // y la animación de caminar parpadea en cada vértice. Con CatmullRomCurve3
+    // (centripetal) suavizamos las esquinas y muestreamos puntos a una
+    // densidad fija (~0.35 m por sub-segmento) para que los slerp de rotación
+    // y las interpolaciones de posición se sientan continuas.
+    function densifyRoute(waypoints) {
+      if (!Array.isArray(waypoints) || waypoints.length < 2) return waypoints;
+      // Para 2 puntos no hay esquina que suavizar: solo subdividir linealmente.
+      if (waypoints.length === 2) {
+        const a = waypoints[0];
+        const b = waypoints[1];
+        const dist = a.distanceTo(b);
+        const steps = Math.max(2, Math.ceil(dist / 0.35));
+        const out = [];
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          out.push(new THREE.Vector3(
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t,
+            a.z + (b.z - a.z) * t,
+          ));
+        }
+        return out;
+      }
+      try {
+        const curve = new THREE.CatmullRomCurve3(
+          waypoints.map(function(p) { return p.clone(); }),
+          false,            // no cerrada
+          'centripetal',    // evita overshoots fuera del corredor
+          0.4               // tensión moderada: suaviza sin alejarse
+        );
+        // Estimar longitud para muestrear a densidad constante.
+        let approxLen = 0;
+        for (let i = 0; i < waypoints.length - 1; i++) {
+          approxLen += waypoints[i].distanceTo(waypoints[i + 1]);
+        }
+        const SAMPLE_STEP = 0.35; // m por punto interpolado
+        const divisions = Math.max(
+          waypoints.length * 8,
+          Math.ceil(approxLen / SAMPLE_STEP),
+        );
+        const pts = curve.getPoints(divisions);
+        // Garantizar inicio y fin EXACTOS (Catmull-Rom puede desviarlos un pelo).
+        if (pts.length > 0) {
+          pts[0].copy(waypoints[0]);
+          pts[pts.length - 1].copy(waypoints[waypoints.length - 1]);
+        }
+        return pts;
+      } catch (e) {
+        console.log('[MapViewWeb][Avatar] densifyRoute fallback: ' + String(e));
+        return waypoints;
+      }
+    }
+
     // Encuadra la cámara alineada con la ruta (desde el inicio hacia el destino)
     function fitCameraToRoute(waypoints) {
       if (!waypoints || waypoints.length < 2 || !mapBounds) return;
@@ -1654,7 +1769,13 @@ class MapViewWebState extends State<MapViewWeb> {
         options.speed = Math.max(sz.x, sz.z, 1.0) * 0.08;
       }
       avatarState.speed = Number.isFinite(options.speed) ? options.speed : 1.2;
-      avatarState.route = waypoints;
+      // Densificamos la ruta del avatar (Catmull-Rom centripetal): muchos
+      // waypoints cortos = rotación slerp y posición lerp se sienten continuas
+      // aun cuando el A* solo devuelve 2-3 nodos. El trail visual (línea +
+      // huellas) sigue usando los waypoints originales — ese sistema ya tiene
+      // su propia densificación.
+      const denseRoute = densifyRoute(waypoints);
+      avatarState.route = denseRoute;
       avatarState.segmentIndex = 0;
       avatarState.segmentProgress = 0.0;
       avatarState.arrivalNotified = false;
@@ -1672,10 +1793,10 @@ class MapViewWebState extends State<MapViewWeb> {
         try { fitCameraToRoute(waypoints); } catch (_) {}
       }
 
-      // Colocar avatar en el primer waypoint
-      placeAvatarAt(waypoints[0]);
+      // Colocar avatar en el primer punto de la ruta densificada
+      placeAvatarAt(denseRoute[0]);
 
-      if (waypoints.length === 1) {
+      if (denseRoute.length === 1) {
         // Ruta de un solo punto: solo posicionamos y entramos en idle
         avatarState.isWalking = false;
         playIdle();
@@ -1684,13 +1805,13 @@ class MapViewWebState extends State<MapViewWeb> {
       }
 
       avatarState.segmentDuration = computeSegmentDuration(
-        waypoints[0],
-        waypoints[1],
+        denseRoute[0],
+        denseRoute[1],
         avatarState.speed,
       );
 
       // Rotación inicial instantánea para no verlo girar 180° al arrancar
-      faceAvatarTowards(waypoints[1]);
+      faceAvatarTowards(denseRoute[1]);
       if (avatarState.root && avatarState.targetQuat) {
         avatarState.root.quaternion.copy(avatarState.targetQuat);
       }
@@ -1715,7 +1836,8 @@ class MapViewWebState extends State<MapViewWeb> {
         trailState.onIntroDone = startWalking;
       }
       console.log(
-        '[MapViewWeb][Avatar] Ruta iniciada — ' + waypoints.length + ' waypoints'
+        '[MapViewWeb][Avatar] Ruta iniciada — ' + waypoints.length + ' wp originales → '
+        + denseRoute.length + ' puntos densificados'
       );
     }
 
@@ -1732,6 +1854,8 @@ class MapViewWebState extends State<MapViewWeb> {
       if (avatarState.root && avatarState.baseScale) {
         avatarState.root.scale.setScalar(avatarState.baseScale);
       }
+      // Restaurar opacidad por si se interrumpió un fade a media transición.
+      setAvatarOpacity(1.0);
       clearPathTrail();
       clearWaypointMarkers(); // limpia cualquier esfera de debug residual
       if (avatarState.ready) {
@@ -1870,23 +1994,31 @@ class MapViewWebState extends State<MapViewWeb> {
 
       if (!avatarState.ready || !avatarState.root) return;
 
-      // Rotación suave hacia el próximo waypoint
+      // Rotación suave hacia el próximo waypoint. Usamos un slerp con factor
+      // dependiente de dt (decaimiento exponencial) para que el giro se
+      // sienta igual a 30 / 60 / 120 fps. ~88% de cierre por segundo.
       if (avatarState.targetQuat) {
-        avatarState.root.quaternion.slerp(avatarState.targetQuat, 0.18);
+        const slerpAlpha = 1 - Math.pow(0.12, Math.min(dt, 0.1));
+        avatarState.root.quaternion.slerp(avatarState.targetQuat, slerpAlpha);
       }
 
       if (!avatarState.isWalking) return;
       const route = avatarState.route;
       if (!route || route.length < 2) return;
 
-      // ── Fase de respawn: shrink → teleport → grow, en vez de teleport
-      // instantáneo al cerrar el loop. Evita el flash visual del salto.
+      // ── Fase de respawn: fade-out → teleport → fade-in al cerrar el loop.
+      // El fade ahora es scoped (solo activa transparent durante la propia
+      // fase del fade), por lo que el resto del tiempo el avatar se dibuja
+      // opaco y NO hay z-fighting entre sus mallas — esa era la causa del
+      // parpadeo durante el caminar.
       if (avatarState.respawning) {
-        avatarState.respawnT += dt / Math.max(avatarState.respawnDuration || 0.35, 0.0001);
+        avatarState.respawnT += dt / Math.max(avatarState.respawnDuration || 0.55, 0.0001);
         const rt = Math.min(1.0, avatarState.respawnT);
-        let scaleFactor;
+        let alpha;
         if (rt < 0.5) {
-          scaleFactor = 1.0 - rt * 2.0; // 1 → 0
+          // 1 → 0 con ease-in cubic
+          const k = rt * 2.0;
+          alpha = 1.0 - (k * k * k);
         } else {
           if (!avatarState.respawnTeleported) {
             avatarState.respawnTeleported = true;
@@ -1903,48 +2035,51 @@ class MapViewWebState extends State<MapViewWeb> {
               avatarState.speed,
             );
           }
-          scaleFactor = (rt - 0.5) * 2.0; // 0 → 1
+          // 0 → 1 con ease-out cubic
+          const k = (rt - 0.5) * 2.0;
+          const inv = 1.0 - k;
+          alpha = 1.0 - (inv * inv * inv);
         }
-        const base = avatarState.baseScale || avatarState.scale || 1.0;
-        avatarState.root.scale.setScalar(base * scaleFactor);
+        setAvatarOpacity(alpha);
         if (rt >= 1.0) {
           avatarState.respawning = false;
           avatarState.respawnTeleported = false;
-          avatarState.root.scale.setScalar(base);
+          setAvatarOpacity(1.0); // restaura transparent/depthWrite originales
         }
         return; // mientras respawnea, no avanzamos el segmento
       }
 
-      const i = avatarState.segmentIndex;
-      if (i >= route.length - 1) return;
+      if (avatarState.segmentIndex >= route.length - 1) return;
 
-      const from = route[i];
-      const to = route[i + 1];
-
+      // Avanzar progreso. Con la ruta densificada los tramos son cortos
+      // (~0.35 m), por lo que es posible cruzar varios tramos en un solo
+      // frame si dt es alto (tab en background, GC stall, etc.). El while
+      // consume el tiempo restante segmento a segmento para que la posición
+      // interpolada no se "salte" puntos y la rotación se actualice en cada
+      // esquina.
       avatarState.segmentProgress += dt / Math.max(avatarState.segmentDuration, 0.0001);
-      let t = avatarState.segmentProgress;
-
-      if (t >= 1.0) {
-        // Completamos este tramo: avanzar al siguiente
+      while (avatarState.segmentProgress >= 1.0) {
         avatarState.segmentIndex += 1;
         if (avatarState.segmentIndex >= route.length - 1) {
-          // Llegada al destino: arrancar fase de respawn (shrink+teleport+grow)
-          // en lugar de teleport instantáneo. La animación se repite hasta
-          // que el usuario cambie de mapa/sección/tienda (stopAvatarRoute).
+          // Llegada al destino: arrancamos la fase de respawn (fade-out →
+          // teleport al inicio → fade-in) para que el bucle de caminar
+          // continúe. El clip "Walk" sigue corriendo en el mixer durante el
+          // fade — no se resetea, así que no hay T-pose ni "pop".
           if (!avatarState.arrivalNotified) {
             notifyFlutter('onAvatarArrived', { waypoints: route.length });
             avatarState.arrivalNotified = true;
           }
           avatarState.respawning = true;
           avatarState.respawnT = 0.0;
-          avatarState.respawnDuration = 0.35;
+          avatarState.respawnDuration = 0.55;
           avatarState.respawnTeleported = false;
-          // El clip "Walk" sigue corriendo durante el respawn — no llamar
-          // playWalk() aquí evita el reset/T-pose de 1 frame.
-          console.log('[MapViewWeb][Avatar] Llegada a destino → respawn (loop)');
+          console.log('[MapViewWeb][Avatar] Llegada a destino → respawn (fade-loop)');
           return;
         }
-        avatarState.segmentProgress = 0;
+        // Pasamos al siguiente tramo conservando el "exceso" de progreso
+        // proporcionalmente al nuevo segmento.
+        const overflowRatio = (avatarState.segmentProgress - 1.0)
+          * Math.max(avatarState.segmentDuration, 0.0001);
         const nextFrom = route[avatarState.segmentIndex];
         const nextTo = route[avatarState.segmentIndex + 1];
         avatarState.segmentDuration = computeSegmentDuration(
@@ -1952,9 +2087,15 @@ class MapViewWebState extends State<MapViewWeb> {
           nextTo,
           avatarState.speed,
         );
+        avatarState.segmentProgress = overflowRatio
+          / Math.max(avatarState.segmentDuration, 0.0001);
         faceAvatarTowards(nextTo);
-        t = 0;
       }
+
+      const i = avatarState.segmentIndex;
+      const from = route[i];
+      const to = route[i + 1];
+      const t = avatarState.segmentProgress;
 
       // Interpolar posición con lerp dentro del segmento
       const pos = avatarState.root.position;

@@ -1026,10 +1026,11 @@ class _MapScreenState extends State<MapScreen> {
 
     // En Flutter Web, startAvatarRoute recarga el HTML y onMapLoaded vuelve a
     // dispararse. El flag _routeDispatched previene el loop infinito.
+    // Nota: cuando no hay tienda activa NO posicionamos el avatar — debe
+    // permanecer oculto hasta que el usuario seleccione un destino. Mostrarlo
+    // quieto en el kiosko al cargar el mapa se siente como "carga inacabada".
     if (_selectedStoreForRoute != null && !_routeDispatched) {
       _runAvatarRouteTo(_selectedStoreForRoute!);
-    } else if (_selectedStoreForRoute == null) {
-      _placeAvatarAtKiosk();
     }
   }
 
@@ -1165,7 +1166,10 @@ class _MapScreenState extends State<MapScreen> {
                       _selectionService.select(active);
                     } else {
                       _stateManager.onViewChanged();
-                      _placeAvatarAtKiosk();
+                      // No re-mostramos el avatar al cambiar de piso sin
+                      // tienda activa: queremos que aparezca SOLO cuando hay
+                      // ruta. La vista vuelve a quedar limpia.
+                      _floorKeys[_selectedFloor]?.currentState?.hideAvatar();
                     }
                   }
                 },
