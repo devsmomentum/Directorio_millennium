@@ -11,6 +11,7 @@ import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'screens/home_screen.dart';
 import 'theme_manager.dart';
 import 'services/telemetry_service.dart';
+import 'services/kiosk_bootstrap_service.dart';
 import 'widgets/emergency_wrapper.dart';
 
 Future<void> main() async {
@@ -56,6 +57,15 @@ Future<void> main() async {
 
     await ThemeManager().init();
     TelemetryService().start();
+
+    // Asegura que haya un kiosk_id válido. En laptop/desktop (sin hardware
+    // Sunmi) cae al kiosco de la planta baja (RG) por defecto. Si falla
+    // por red u otra razón, no bloqueamos el arranque de la app.
+    try {
+      await KioskBootstrapService.ensureKioskBound();
+    } catch (e, st) {
+      debugPrint('[main] KioskBootstrap falló: $e\n$st');
+    }
 
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

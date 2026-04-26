@@ -8,9 +8,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'main_layout.dart';
 import '../widgets/emergency_button.dart';
 import '../widgets/flash_coupon_dialog.dart';
+import '../widgets/start_transition_overlay.dart';
 import '../services/ad_cache_manager.dart';
 import '../services/coupon_service.dart';
 import '../theme/app_theme.dart';
+
+const String _kLogoUrl =
+    'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_millennium.png';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentAdIndex = 0;
   VideoPlayerController? _videoController;
   bool _flashCouponShown = false;
+  bool _isTransitioning = false;
 
   @override
   void initState() {
@@ -172,15 +177,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           // 3. LOGO MILLENNIUM (Arriba Derecha)
-          Positioned(
-            top: 20,
-            right: 25,
-            child: Image.network(
-              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_millennium.png',
-              height: 100,
-              fit: BoxFit.contain,
+          // Se oculta durante la transición porque el overlay renderiza
+          // su propia copia animada partiendo desde esta misma posición.
+          if (!_isTransitioning)
+            Positioned(
+              top: 20,
+              right: 25,
+              child: Image.network(
+                _kLogoUrl,
+                height: 100,
+                fit: BoxFit.contain,
+              ),
             ),
-          ),
 
           // 4. Contenido Principal
           SafeArea(
@@ -254,9 +262,44 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+
+          // 5. Overlay de transición (encima de todo).
+          if (_isTransitioning)
+            Positioned.fill(
+              child: StartTransitionOverlay(
+                logoUrl: _kLogoUrl,
+                onComplete: _onTransitionComplete,
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  void _startTransition() {
+    if (_isTransitioning) return;
+    setState(() => _isTransitioning = true);
+  }
+
+  Future<void> _onTransitionComplete() async {
+    if (!mounted) return;
+    // Usamos `push` (no `pushReplacement`) para que HomeScreen siga en el
+    // stack: el botón "Inicio" del bottom-nav de MainLayout hace `pop` y
+    // necesita volver acá. Con pushReplacement el stack quedaba vacío y la
+    // app mostraba pantalla negra.
+    await Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, __, ___) => const MainLayout(),
+        transitionsBuilder: (_, animation, __, child) =>
+            FadeTransition(opacity: animation, child: child),
+      ),
+    );
+    // Al regresar, restauramos el estado para que el logo estático vuelva
+    // y el overlay deje de pintarse.
+    if (mounted) {
+      setState(() => _isTransitioning = false);
+    }
   }
 
   Widget _buildSmallWifiInfo() {
@@ -324,10 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 Widget _buildSmallStartButton(BuildContext context) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const MainLayout()),
-      ),
+      onTap: _isTransitioning ? null : _startTransition,
       child: Container(
         width: double.infinity,
         height: 55,
