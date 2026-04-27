@@ -1036,12 +1036,12 @@ class _MapScreenState extends State<MapScreen> {
 
   Widget _build3DMapArea() {
     const floorLabels = {
-      'RG': '🗺 PLANTA BAJA',
-      'PL': '🗺 NIVEL PL',
-      'C1': '🗺 NIVEL C1',
-      'C2': '🗺 NIVEL C2',
-      'C3': '🗺 NIVEL C3',
-      'C4': '🗺 NIVEL C4',
+      'RG': 'Nivel RG',
+      'PL': 'Nivel PL',
+      'C1': 'Nivel C1',
+      'C2': 'Nivel C2',
+      'C3': 'Nivel C3',
+      'C4': 'Nivel C4',
     };
 
     return Padding(

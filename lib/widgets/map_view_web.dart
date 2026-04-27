@@ -81,16 +81,7 @@ class MapViewWebState extends State<MapViewWeb> {
         .join();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Color de fondo de la app convertido a hex CSS para evitar parpadeos blancos
-  // ══════════════════════════════════════════════════════════════════════════
-  String get _backgroundColorCss {
-    final color = AppColors.background;
-    final r = color.r.toInt();
-    final g = color.g.toInt();
-    final b = color.b.toInt();
-    return 'rgb($r, $g, $b)';
-  }
+  String get _backgroundColorCss => '#ffffff';
 
   // ══════════════════════════════════════════════════════════════════════════
   // HTML inyectado con three.js y lógica de avatar
@@ -140,6 +131,9 @@ class MapViewWebState extends State<MapViewWeb> {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
     }
 
     /* Media query para pantallas pequeñas (landscape o height corta) */
@@ -189,6 +183,23 @@ class MapViewWebState extends State<MapViewWeb> {
       transform: scale(1.05);
     }
 
+    /* Overlay de carga interno — cubre el canvas hasta que el modelo esté listo */
+    #html-loading-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 200;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 1;
+      transition: opacity 0.35s ease;
+      pointer-events: none;
+    }
+    #html-loading-overlay.hidden {
+      opacity: 0;
+    }
+
     /* Panel de calibración (debug) */
     #calib-panel {
       position: absolute;
@@ -231,6 +242,8 @@ class MapViewWebState extends State<MapViewWeb> {
 <body>
   <div id="viewer-container">
     <canvas id="map-canvas"></canvas>
+
+    <div id="html-loading-overlay"></div>
 
     <div id="map-controls">
       <!-- Zoom In (+) -->
@@ -2266,7 +2279,23 @@ class MapViewWebState extends State<MapViewWeb> {
           '  -> Para mover el centro inicial edita INITIAL_CENTER_OFFSET_X/Z en centerTopView()'
         );
         console.log('[MapViewWeb] Modelo del mapa cargado correctamente');
-        notifyFlutter('onMapLoaded', 'ok');
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            var htmlOverlay = document.getElementById('html-loading-overlay');
+            if (htmlOverlay) {
+              htmlOverlay.classList.add('hidden');
+              htmlOverlay.addEventListener('transitionend', function() {
+                htmlOverlay.style.display = 'none';
+              }, { once: true });
+            }
+            var controls = document.getElementById('map-controls');
+            if (controls) {
+              controls.style.opacity = '1';
+              controls.style.pointerEvents = 'auto';
+            }
+            notifyFlutter('onMapLoaded', 'ok');
+          });
+        });
       },
       undefined,
       function(error) {
