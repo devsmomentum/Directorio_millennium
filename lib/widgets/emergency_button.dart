@@ -28,15 +28,15 @@ class EmergencyButton extends StatelessWidget {
       builder: (BuildContext dialogContext) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           child: Container(
             decoration: BoxDecoration(
               gradient: const RadialGradient(
                 center: Alignment.center,
                 radius: 1.5,
                 colors: [
-                  Color(0xFF220000), 
-                  Color(0xFF000000), 
+                  Color(0xFF220000),
+                  Color(0xFF000000),
                 ],
               ),
               borderRadius: BorderRadius.circular(24),
@@ -50,7 +50,8 @@ class EmergencyButton extends StatelessWidget {
               ],
             ),
             padding: const EdgeInsets.all(30),
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
@@ -169,6 +170,7 @@ class EmergencyButton extends StatelessWidget {
                   ],
                 ),
               ],
+              ),
             ),
           ),
         );

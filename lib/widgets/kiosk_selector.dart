@@ -254,10 +254,10 @@ class _KioskSelectorDialogState extends State<KioskSelectorDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: AppColors.surfaceLight,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Container(
-        width: 480,
-        constraints: const BoxConstraints(maxHeight: 640),
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 640),
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,

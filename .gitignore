@@ -76,3 +76,5 @@ flutter_*.png
 tools/config.js
 
 /documents
+
+*.temp

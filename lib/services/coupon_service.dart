@@ -31,30 +31,46 @@ class CouponService {
 
   final SupabaseClient _client = Supabase.instance.client;
 
-  /// Trae el cupón con `is_popup_active = true` y stock disponible.
-  /// Filtramos `end_date` del lado del cliente para tolerar registros sin fecha.
+  /// Trae el cupón flash más reciente: `plan_type = 'PUBLI_PROMO'`,
+  /// stock disponible y `end_date` futura.
+  /// `end_date` es NOT NULL en BD (migración 20260427120000), así que
+  /// se filtra directamente en la query sin lógica cliente-side.
   Future<FlashCoupon?> fetchActiveFlashCoupon() async {
+    final nowIso = DateTime.now().toUtc().toIso8601String();
     final rows = await _client
         .from('coupons')
         .select()
-        .eq('is_popup_active', true)
+        .eq('plan_type', 'PUBLI_PROMO')
         .gt('amount_available', 0)
+        .gt('end_date', nowIso)
         .order('created_at', ascending: false)
-        .limit(5);
+        .limit(1);
 
-    final now = DateTime.now();
-    for (final row in rows) {
-      final coupon = FlashCoupon.fromJson(row);
-      final notExpired = coupon.endDate == null || coupon.endDate!.isAfter(now);
-      if (notExpired) return coupon;
-    }
-    return null;
+    if (rows.isEmpty) return null;
+    return FlashCoupon.fromJson(rows.first);
   }
 
   Future<void> claimCoupon(ClaimPayload payload) async {
     final response = await _client.functions.invoke(
       'claim-flash-coupon',
       body: payload.toJson(),
+    );
+
+    final status = response.status;
+    if (status >= 400) {
+      throw ClaimCouponException.fromResponse(status, response.data);
+    }
+  }
+
+  /// Reclama un cupón del catálogo (sin pago, sólo correo).
+  /// Decrementa stock atómicamente y envía el código de canjeo por SMTP.
+  Future<void> claimCatalogCoupon({
+    required String couponId,
+    required String email,
+  }) async {
+    final response = await _client.functions.invoke(
+      'claim-catalog-coupon',
+      body: {'coupon_id': couponId, 'email': email},
     );
 
     final status = response.status;

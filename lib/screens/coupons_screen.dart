@@ -2,11 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import '../services/currency_service.dart';
+import '../services/coupon_service.dart';
 import '../widgets/screen_ad_banners.dart';
 
-// Modelo de datos simple
 class Coupon {
   final String id;
   final String title;
@@ -14,7 +12,6 @@ class Coupon {
   final String imageUrl;
   final String code;
   final int amountAvailable;
-  final double priceUsd;
 
   Coupon({
     required this.id,
@@ -23,18 +20,20 @@ class Coupon {
     required this.imageUrl,
     required this.code,
     required this.amountAvailable,
-    required this.priceUsd,
   });
 
   factory Coupon.fromJson(Map<String, dynamic> json) {
+    final stores = json['stores'];
+    final storeName = stores is Map<String, dynamic>
+        ? (stores['name'] as String?) ?? ''
+        : '';
     return Coupon(
       id: json['id'] as String,
-      title: json['title'] as String,
-      storeName: json['stores']['name'] as String,
-      imageUrl: json['image_url'] as String,
-      code: json['code'] as String,
-      amountAvailable: json['amount_available'] as int,
-      priceUsd: (json['price_usd'] as num?)?.toDouble() ?? 0.0,
+      title: (json['title'] as String?) ?? 'Cupón Promocional',
+      storeName: storeName,
+      imageUrl: (json['image_url'] as String?) ?? '',
+      code: (json['code'] as String?) ?? '',
+      amountAvailable: (json['amount_available'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -50,28 +49,24 @@ class _CouponsScreenState extends State<CouponsScreen> {
   final _client = Supabase.instance.client;
   List<Coupon> _allCoupons = [];
   bool _isLoading = true;
-  double _bcvRate = 0.0;
 
-  // 🚀 NUEVO: Canal para escuchar cambios en tiempo real
   RealtimeChannel? _subscription;
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
-    _setupRealtime(); // 🚀 Iniciamos la escucha en vivo
+    _fetchCoupons();
+    _setupRealtime();
   }
 
   @override
   void dispose() {
-    // 🚀 Limpiar la conexión al salir
     if (_subscription != null) {
       _client.removeChannel(_subscription!);
     }
     super.dispose();
   }
 
-  // 🚀 NUEVO: Escuchar cambios en la tabla 'coupons' (Realtime)
   void _setupRealtime() {
     _subscription = _client
         .channel('public:coupons')
@@ -81,24 +76,11 @@ class _CouponsScreenState extends State<CouponsScreen> {
           table: 'coupons',
           callback: (payload) {
             if (mounted) {
-              _fetchCoupons(); // Recarga la lista cuando hay cambios en la BD
+              _fetchCoupons();
             }
           },
         )
         .subscribe();
-  }
-
-  Future<void> _fetchData() async {
-    // 🚀 Llamamos al servicio centralizado para la tasa
-    final rate = await CurrencyService().getBcvRate();
-    if (mounted) {
-      setState(() {
-        _bcvRate = rate;
-      });
-    }
-
-    // Luego cargamos los cupones
-    await _fetchCoupons();
   }
 
   Future<void> _fetchCoupons() async {
@@ -120,160 +102,8 @@ class _CouponsScreenState extends State<CouponsScreen> {
     }
   }
 
-  // 🚀 FLUJO 1: MODAL DEL QR PARA PAGAR
-  void _showCouponModal(Coupon coupon) {
-    final double priceBs = coupon.priceUsd * _bcvRate;
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: const Color(0xFF111111),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: Container(
-          width: 500,
-          padding: const EdgeInsets.all(30),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-              color: const Color(0xFF00E5FF).withOpacity(0.3),
-              width: 2,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                coupon.storeName.toUpperCase(),
-                style: const TextStyle(
-                  color: Color(0xFF00E5FF),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                coupon.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 15,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Text(
-                      '\$${coupon.priceUsd.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        color: Colors.greenAccent,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Container(height: 40, width: 2, color: Colors.white10),
-                    Text(
-                      'Bs. ${priceBs.toStringAsFixed(2)}',
-                      style: const TextStyle(color: Colors.white, fontSize: 24),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 30),
-
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: QrImageView(
-                  data: coupon.code,
-                  version: QrVersions.auto,
-                  size: 200.0,
-                  foregroundColor: Colors.black,
-                  gapless: false,
-                  embeddedImage: const NetworkImage(
-                    'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_rg.png',
-                  ),
-                  embeddedImageStyle: const QrEmbeddedImageStyle(
-                    size: Size(40, 40),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              const Text(
-                "ACERCA TU QR DE PAGO AL LECTOR INFERIOR",
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                  letterSpacing: 1,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 30),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00E5FF),
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      icon: const Icon(
-                        Icons.qr_code_scanner,
-                        color: Colors.black,
-                      ),
-                      label: const Text(
-                        'SIMULAR ESCANEO K2',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _showEmailModal(coupon);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white54,
-                      size: 30,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 🚀 FLUJO 2: MODAL PARA PEDIR CORREO Y DESCONTAR STOCK
-  void _showEmailModal(Coupon coupon) {
+  // Modal único: pide correo y reclama el cupón vía Edge Function.
+  void _showClaimModal(Coupon coupon) {
     final TextEditingController emailController = TextEditingController();
     bool isProcessing = false;
 
@@ -284,39 +114,62 @@ class _CouponsScreenState extends State<CouponsScreen> {
         builder: (context, setModalState) {
           return Dialog(
             backgroundColor: const Color(0xFF111111),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(30),
             ),
-            child: Container(
-              width: 450,
-              padding: const EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: Colors.greenAccent.withOpacity(0.5),
-                  width: 2,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 450),
+              child: Container(
+                padding: const EdgeInsets.all(30),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: const Color(0xFF00E5FF).withOpacity(0.4),
+                    width: 2,
+                  ),
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                   const Icon(
-                    Icons.check_circle_outline,
-                    color: Colors.greenAccent,
+                    Icons.local_activity_outlined,
+                    color: Color(0xFF00E5FF),
                     size: 70,
                   ),
                   const SizedBox(height: 15),
-                  const Text(
-                    '¡PAGO APROBADO!',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.normal,
+                  Text(
+                    coupon.storeName.isEmpty
+                        ? 'CUPÓN'
+                        : coupon.storeName.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF00E5FF),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
+                  Text(
+                    coupon.title,
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   const Text(
-                    'Ingresa tu correo electrónico donde te enviaremos el código QR definitivo para canjear en la tienda.',
+                    'Ingresa tu correo electrónico y te enviaremos el código de canjeo para que lo presentes en la tienda.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white54, fontSize: 14),
                   ),
@@ -340,7 +193,9 @@ class _CouponsScreenState extends State<CouponsScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
-                        borderSide: const BorderSide(color: Colors.greenAccent),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF00E5FF),
+                        ),
                       ),
                     ),
                   ),
@@ -350,7 +205,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
                       Expanded(
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.greenAccent,
+                            backgroundColor: const Color(0xFF00E5FF),
                             padding: const EdgeInsets.symmetric(vertical: 20),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(15),
@@ -359,51 +214,42 @@ class _CouponsScreenState extends State<CouponsScreen> {
                           onPressed: isProcessing
                               ? null
                               : () async {
-                                  if (emailController.text.isEmpty) return;
+                                  final email = emailController.text.trim();
+                                  if (email.isEmpty) return;
                                   setModalState(() => isProcessing = true);
 
                                   try {
-                                    final int newAmount =
-                                        coupon.amountAvailable - 1;
-                                    await _client
-                                        .from('coupons')
-                                        .update({'amount_available': newAmount})
-                                        .eq('id', coupon.id);
+                                    await CouponService.instance
+                                        .claimCatalogCoupon(
+                                      couponId: coupon.id,
+                                      email: email,
+                                    );
 
-                                    // 🚀 PASO 3: ¡REGISTRAR LA TRANSACCIÓN FINANCIERA! (NUEVO)
-                                    await _client.from('transactions').insert({
-                                      'transaction_type': 'coupon',
-                                      'item_id': coupon.id,
-                                      'item_name': coupon.title,
-                                      'amount_usd': coupon.priceUsd,
-                                      'exchange_rate': _bcvRate,
-                                      'amount_bs': (coupon.priceUsd * _bcvRate),
-                                      'payment_method': 'simulated',
-                                      'status': 'completed',
-                                      'user_email': emailController.text,
-                                      'kiosk_id':
-                                          'K2-01-ENTRADA', // Identificador del Kiosco
-                                    });
-
-                                    if (mounted) {
-                                      Navigator.pop(context);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            '✅ Cupón enviado y pago registrado a ${emailController.text}',
-                                          ),
-                                          backgroundColor: Colors.green,
+                                    if (!mounted) return;
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          '✅ ¡Cupón enviado a $email! Revisa tu bandeja.',
                                         ),
-                                      );
-                                    }
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  } on ClaimCouponException catch (e) {
+                                    if (!mounted) return;
+                                    setModalState(() => isProcessing = false);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(e.message),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
                                   } catch (e) {
                                     if (!mounted) return;
                                     setModalState(() => isProcessing = false);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text('Error procesando: $e'),
+                                        content: Text('Error reclamando: $e'),
                                         backgroundColor: Colors.red,
                                       ),
                                     );
@@ -419,7 +265,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
                                   ),
                                 )
                               : const Text(
-                                  'ENVIAR CUPÓN',
+                                  'RECLAMAR CUPÓN',
                                   style: TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.bold,
@@ -440,7 +286,9 @@ class _CouponsScreenState extends State<CouponsScreen> {
                       ),
                     ],
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -458,7 +306,6 @@ class _CouponsScreenState extends State<CouponsScreen> {
         showBottom: false,
         child: Column(
           children: [
-
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -469,7 +316,7 @@ class _CouponsScreenState extends State<CouponsScreen> {
                   : _allCoupons.isEmpty
                   ? const Center(
                       child: Text(
-                        'No hay ofertas disponibles.',
+                        'No hay cupones disponibles.',
                         style: TextStyle(color: Colors.white54),
                       ),
                     )
@@ -496,11 +343,10 @@ class _CouponsScreenState extends State<CouponsScreen> {
   }
 
   Widget _buildCouponCard(Coupon coupon) {
-    final priceBs = coupon.priceUsd * _bcvRate;
     final bool isAgotado = coupon.amountAvailable <= 0;
 
     return GestureDetector(
-      onTap: isAgotado ? null : () => _showCouponModal(coupon),
+      onTap: isAgotado ? null : () => _showClaimModal(coupon),
       child: Stack(
         children: [
           Container(
@@ -572,12 +418,13 @@ class _CouponsScreenState extends State<CouponsScreen> {
                             color: Colors.black87,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Text(
-                            '\$${coupon.priceUsd.toStringAsFixed(2)}',
-                            style: const TextStyle(
+                          child: const Text(
+                            'GRATIS',
+                            style: TextStyle(
                               color: Colors.greenAccent,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 14,
+                              letterSpacing: 1,
                             ),
                           ),
                         ),
@@ -620,18 +467,8 @@ class _CouponsScreenState extends State<CouponsScreen> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          'Ref: Bs. ${priceBs.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 6),
                         const Text(
-                          'TOCA PARA COMPRAR',
+                          'TOCA PARA RECLAMAR',
                           style: TextStyle(
                             color: Color(0xFF00E5FF),
                             fontSize: 10,

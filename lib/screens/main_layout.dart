@@ -12,7 +12,9 @@ import 'coupons_screen.dart'; // 🚀 NUEVO IMPORT
 import '../widgets/screen_ad_banners.dart';
 import '../widgets/app_header.dart';
 import '../widgets/inactivity_warning.dart';
+import '../widgets/flash_coupon_dialog.dart';
 import '../widgets/map_view_web.dart' show MapInteractionNotification;
+import '../services/coupon_service.dart';
 import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
@@ -37,6 +39,11 @@ class _MainLayoutState extends State<MainLayout> {
   bool _isConfiguring = false; // Evita que el técnico sea expulsado
   bool _showWarning = false; // Controla la visibilidad del overlay de aviso
 
+  // El flash coupon se muestra una sola vez por instancia de MainLayout:
+  // al entrar al directorio por primera vez tras presionar COMENZAR y
+  // completar la animación del logo en HomeScreen.
+  bool _flashCouponShown = false;
+
   // 1. Aquí se definen las pantallas reales
   final List<Widget> _screens = [
     const SizedBox(), // Se usa para volver al Home
@@ -50,6 +57,21 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     _startInactivityTimer(); // 🚀 Arrancamos el reloj al entrar
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowFlashCoupon();
+    });
+  }
+
+  Future<void> _maybeShowFlashCoupon() async {
+    if (_flashCouponShown || !mounted) return;
+    _flashCouponShown = true;
+    try {
+      final coupon = await CouponService.instance.fetchActiveFlashCoupon();
+      if (!mounted || coupon == null) return;
+      await FlashCouponDialog.show(context, coupon);
+    } catch (e) {
+      debugPrint('[MainLayout] flash coupon error: $e');
+    }
   }
 
   @override
@@ -159,6 +181,7 @@ class _MainLayoutState extends State<MainLayout> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
+              scrollable: true,
               title: const Row(
                 children: [
                   Icon(Icons.admin_panel_settings, color: AppColors.primary),
@@ -470,6 +493,7 @@ class _KioskSetupModalState extends State<KioskSetupModal> {
     return AlertDialog(
       backgroundColor: AppColors.surfaceLight,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      scrollable: true,
       title: const Text('Vincular Hardware', style: AppTextStyles.dialogTitle),
       content: _isLoading
           ? const SizedBox(

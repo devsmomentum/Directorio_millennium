@@ -140,23 +140,25 @@ class _MapScreenState extends State<MapScreen>
             horizontal: 20,
             vertical: 20,
           ),
-          child: Container(
-            width: 500,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1A1A).withOpacity(0.95),
-              borderRadius: BorderRadius.circular(25),
-              border: Border.all(color: Colors.white10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.5),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A).withOpacity(0.95),
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(color: Colors.white10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 20,
+                    spreadRadius: 5,
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                 ClipRRect(
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(25),
@@ -255,7 +257,9 @@ class _MapScreenState extends State<MapScreen>
                     ],
                   ),
                 ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         );

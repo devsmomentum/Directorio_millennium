@@ -3,14 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'main_layout.dart';
 import '../widgets/emergency_button.dart';
-import '../widgets/flash_coupon_dialog.dart';
 import '../widgets/start_transition_overlay.dart';
 import '../services/ad_cache_manager.dart';
-import '../services/coupon_service.dart';
 import '../theme/app_theme.dart';
 
 const String _kLogoUrl =
@@ -29,28 +25,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _adTimer;
   int _currentAdIndex = 0;
   VideoPlayerController? _videoController;
-  bool _flashCouponShown = false;
   bool _isTransitioning = false;
 
   @override
   void initState() {
     super.initState();
     _initAdServer();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybeShowFlashCoupon();
-    });
-  }
-
-  Future<void> _maybeShowFlashCoupon() async {
-    if (_flashCouponShown || !mounted) return;
-    _flashCouponShown = true;
-    try {
-      final coupon = await CouponService.instance.fetchActiveFlashCoupon();
-      if (!mounted || coupon == null) return;
-      await FlashCouponDialog.show(context, coupon);
-    } catch (e) {
-      debugPrint('[HomeScreen] flash coupon error: $e');
-    }
   }
 
   Future<void> _initAdServer() async {

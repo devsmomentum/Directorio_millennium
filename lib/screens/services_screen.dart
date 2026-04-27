@@ -130,22 +130,28 @@ class _ServicesScreenState extends State<ServicesScreen> {
         builder: (context, setModalState) {
           return Dialog(
             backgroundColor: const Color(0xFF111111),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(30),
             ),
-            child: Container(
-              width: 450,
-              padding: const EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: const Color(0xFFFF007A).withOpacity(0.5),
-                  width: 2,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 450),
+              child: Container(
+                padding: const EdgeInsets.all(30),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: const Color(0xFFFF007A).withOpacity(0.5),
+                    width: 2,
+                  ),
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                   // Logo
                   Container(
                     width: 80,
@@ -338,7 +344,9 @@ class _ServicesScreenState extends State<ServicesScreen> {
                       ),
                     ],
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -352,22 +360,25 @@ class _ServicesScreenState extends State<ServicesScreen> {
       context: context,
       builder: (context) => Dialog(
         backgroundColor: AppColors.surface,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(30),
         ),
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(30),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-              color: AppColors.primary.withOpacity(0.5),
-              width: 2,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Container(
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(
+                color: AppColors.primary.withOpacity(0.5),
+                width: 2,
+              ),
             ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
               const Icon(
                 Icons.hourglass_empty_rounded,
                 color: AppColors.primary,
@@ -412,7 +423,9 @@ class _ServicesScreenState extends State<ServicesScreen> {
                   ),
                 ),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),

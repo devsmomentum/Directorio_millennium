@@ -101,14 +101,14 @@ class _ClaimCouponFormState extends State<ClaimCouponForm> {
                   widget.coupon.title,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                if (widget.coupon.priceUsd > 0)
-                  Text(
-                    'Valor: \$${widget.coupon.priceUsd.toStringAsFixed(2)}',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
+                const SizedBox(height: 4),
+                Text(
+                  'Canje sin costo',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
                 const SizedBox(height: 20),
                 TextFormField(
                   controller: _firstName,

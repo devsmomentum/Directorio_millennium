@@ -97,7 +97,7 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -105,12 +105,15 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.flash_on, color: Colors.amber, size: 28),
+                  const Icon(Icons.flash_on, color: Colors.amber, size: 26),
                   const SizedBox(width: 6),
-                  Text(
-                    '¡Flash Coupon!',
-                    style: theme.textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w800),
+                  Flexible(
+                    child: Text(
+                      '¡Flash Coupon!',
+                      style: theme.textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
@@ -121,32 +124,33 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
                     widget.coupon.imageUrl!,
-                    height: 120,
+                    height: 100,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
               ],
               Text(
                 widget.coupon.title,
                 textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w700),
               ),
-              if (widget.coupon.priceUsd > 0) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Valor: \$${widget.coupon.priceUsd.toStringAsFixed(2)}',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.w900,
-                  ),
+              const SizedBox(height: 4),
+              Text(
+                'Canje sin costo',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
                 ),
-              ],
-              const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: Colors.black12),
@@ -154,17 +158,17 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
                 ),
                 child: QrImageView(
                   data: widget.coupon.qrPayload,
-                  size: 140,
+                  size: 120,
                   version: QrVersions.auto,
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               Stack(
                 alignment: Alignment.center,
                 children: [
                   SizedBox(
-                    width: 84,
-                    height: 84,
+                    width: 72,
+                    height: 72,
                     child: CircularProgressIndicator(
                       value: progress.clamp(0.0, 1.0),
                       strokeWidth: 6,
@@ -181,9 +185,9 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               _ScarcityBanner(remaining: widget.coupon.amountAvailable),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -191,14 +195,14 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
                   icon: Icon(_isExpired ? Icons.lock_clock : Icons.local_offer),
                   label: Text(_isExpired ? 'Tiempo agotado' : 'Reclamar cupón'),
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     backgroundColor:
                         _isExpired ? Colors.grey : Colors.redAccent,
                   ),
                 ),
               ),
               if (_isExpired) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Cerrar'),
@@ -235,11 +239,16 @@ class _ScarcityBanner extends StatelessWidget {
             color: critical ? Colors.red : Colors.orange.shade800,
           ),
           const SizedBox(width: 6),
-          Text(
-            'Solo quedan $remaining cupones disponibles',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: critical ? Colors.red : Colors.orange.shade900,
+          Flexible(
+            child: Text(
+              'Solo quedan $remaining cupones disponibles',
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: critical ? Colors.red : Colors.orange.shade900,
+              ),
             ),
           ),
         ],
