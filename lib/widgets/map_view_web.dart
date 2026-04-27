@@ -1235,23 +1235,27 @@ class MapViewWebState extends State<MapViewWeb> {
       const radiusZ = Math.max((maxTargetZ - minTargetZ) * 0.5, 1.0);
       const baseRadius = Math.max(radiusX, radiusZ);
 
-      // ─────────────────────────────────────────────────────────────────────
-      // AJUSTE MANUAL DE CÁMARA INICIAL — modifica estos dos valores:
+      // ═══════════════════════════════════════════════════════════════════════
+      // AJUSTE MANUAL DE CÁMARA INICIAL
+      // Lee primero el log "🗺️ [MapViewWeb] COORDENADAS DEL MAPA" en consola
+      // para conocer el sistema de coordenadas de tu modelo GLB, luego edita.
       //
-      //   INITIAL_DISTANCE_FACTOR  →  qué tan lejos arranca la cámara.
-      //     Valores típicos: 1.2 (cerca) … 2.5 (muy lejos).
-      //     Sube el número para alejar; bájalo para acercar.
+      // INITIAL_DISTANCE_FACTOR  →  zoom inicial (1.2 = cerca … 2.5 = lejos)
+      // CAM_HEIGHT_FACTOR        →  altura de la cámara (eje Y)
+      // CAM_DEPTH_FACTOR         →  inclinación frontal (eje Z)
+      //   0.7 / 0.5  → ~54° semi-isométrico  |  1.1 / 0.3  → ~75° cenital
       //
-      //   CAM_HEIGHT_FACTOR        →  cuánto sube la cámara (eje Y).
-      //   CAM_DEPTH_FACTOR         →  cuánto se inclina hacia adelante (eje Z).
-      //     Relación altura/profundidad controla el ángulo de visión:
-      //       0.9 / 0.5  →  ~60° elevación (semi-isométrico)
-      //       1.1 / 0.3  →  ~75° elevación (casi cenital)
-      //       0.5 / 0.85 →  ~30° elevación (rasante, perspectiva dramática)
-      // ─────────────────────────────────────────────────────────────────────
-      const INITIAL_DISTANCE_FACTOR = 1.7;  // ← CAMBIA AQUÍ el zoom inicial
-      const CAM_HEIGHT_FACTOR       = 0.7;  // ← CAMBIA AQUÍ la altura
-      const CAM_DEPTH_FACTOR        = 0.5;  // ← CAMBIA AQUÍ la inclinación
+      // INITIAL_CENTER_OFFSET_X  →  desplaza el punto de mira en X
+      // INITIAL_CENTER_OFFSET_Z  →  desplaza el punto de mira en Z
+      //   Unidades = mismas que las coordenadas del modelo (ver log de consola)
+      //   +X → derecha  |  -X → izquierda
+      //   +Z → hacia la cámara  |  -Z → al fondo
+      // ═══════════════════════════════════════════════════════════════════════
+      const INITIAL_DISTANCE_FACTOR = 1.7;   // ← zoom inicial
+      const CAM_HEIGHT_FACTOR       = 0.7;   // ← altura
+      const CAM_DEPTH_FACTOR        = -0.5;  // ← inclinación (180 grados volteado)
+      const INITIAL_CENTER_OFFSET_X = 0.0;   // ← desplazamiento horizontal
+      const INITIAL_CENTER_OFFSET_Z = 0.0;   // ← desplazamiento de profundidad
 
       const distance = THREE.MathUtils.clamp(
         baseRadius * INITIAL_DISTANCE_FACTOR,
@@ -1264,6 +1268,10 @@ class MapViewWebState extends State<MapViewWeb> {
       if (typeof avatarState !== 'undefined' && avatarState.root && avatarState.ready) {
         targetCenter.copy(avatarState.root.position);
       }
+
+      // Aplicar offset manual sobre el centro calculado
+      targetCenter.x += INITIAL_CENTER_OFFSET_X;
+      targetCenter.z += INITIAL_CENTER_OFFSET_Z;
 
       const nextTarget = targetCenter.clone();
       const nextCamPos = new THREE.Vector3(
@@ -2242,6 +2250,21 @@ class MapViewWebState extends State<MapViewWeb> {
         centerTopView();
         if (AVATAR_URL) loadAvatar(AVATAR_URL);
 
+        // ── Log de referencia para ajustar INITIAL_CENTER_OFFSET_X/Z ──────
+        const _dbgSize = mapBounds.getSize(new THREE.Vector3());
+        console.log(
+          '🗺️ [MapViewWeb] COORDENADAS DEL MAPA\\n' +
+          '  Centro (mapCenter):  X=' + mapCenter.x.toFixed(3) +
+                                  '  Y=' + mapCenter.y.toFixed(3) +
+                                  '  Z=' + mapCenter.z.toFixed(3) + '\\n' +
+          '  Esquina min:         X=' + mapBounds.min.x.toFixed(3) +
+                                  '  Z=' + mapBounds.min.z.toFixed(3) + '\\n' +
+          '  Esquina max:         X=' + mapBounds.max.x.toFixed(3) +
+                                  '  Z=' + mapBounds.max.z.toFixed(3) + '\\n' +
+          '  Tamano del modelo:   ancho=' + _dbgSize.x.toFixed(3) +
+                                  '  prof=' + _dbgSize.z.toFixed(3) + '\\n' +
+          '  -> Para mover el centro inicial edita INITIAL_CENTER_OFFSET_X/Z en centerTopView()'
+        );
         console.log('[MapViewWeb] Modelo del mapa cargado correctamente');
         notifyFlutter('onMapLoaded', 'ok');
       },

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/flash_coupon.dart';
 
@@ -31,23 +33,29 @@ class CouponService {
 
   final SupabaseClient _client = Supabase.instance.client;
 
-  /// Trae el cupón flash más reciente: `plan_type = 'PUBLI_PROMO'`,
-  /// stock disponible y `end_date` futura.
-  /// `end_date` es NOT NULL en BD (migración 20260427120000), así que
-  /// se filtra directamente en la query sin lógica cliente-side.
-  Future<FlashCoupon?> fetchActiveFlashCoupon() async {
+  /// Trae un cupón flash aleatorio entre todos los activos con
+  /// `plan_type = 'PUBLI_PROMO'`, stock disponible y `end_date` futura.
+  /// Si se pasa [excludeId] y hay más de un cupón, excluye ese ID para
+  /// garantizar rotación entre sesiones.
+  Future<FlashCoupon?> fetchActiveFlashCoupon({String? excludeId}) async {
     final nowIso = DateTime.now().toUtc().toIso8601String();
     final rows = await _client
         .from('coupons')
         .select()
         .eq('plan_type', 'PUBLI_PROMO')
         .gt('amount_available', 0)
-        .gt('end_date', nowIso)
-        .order('created_at', ascending: false)
-        .limit(1);
+        .gt('end_date', nowIso);
 
     if (rows.isEmpty) return null;
-    return FlashCoupon.fromJson(rows.first);
+    var list = List<Map<String, dynamic>>.from(rows);
+
+    if (list.length > 1 && excludeId != null) {
+      final filtered = list.where((r) => r['id'] != excludeId).toList();
+      if (filtered.isNotEmpty) list = filtered;
+    }
+
+    list.shuffle(Random());
+    return FlashCoupon.fromJson(list.first);
   }
 
   Future<void> claimCoupon(ClaimPayload payload) async {

@@ -115,27 +115,32 @@ class _StartTransitionOverlayState extends State<StartTransitionOverlay>
               ColoredBox(
                 color: Colors.black.withValues(alpha: _bgOpacity.value),
               ),
-              // Halo radial detrás del logo (aparece sobre el final).
+              // Halo radial detrás del logo (más sutil y contenido).
               Align(
                 alignment: _alignment.value,
                 child: Container(
-                  width: logoHeight * 2.2,
-                  height: logoHeight * 2.2,
+                  // 1. Reducimos el tamaño del contenedor de 2.2 a 1.5
+                  width: logoHeight * 1.5,
+                  height: logoHeight * 1.5,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        const Color(0xFF00FF88).withValues(alpha: 0.72 * _glow.value),
-                        const Color(0xFF00E870).withValues(alpha: 0.38 * _glow.value),
+                        // 2. Reducimos la opacidad inicial para que no sea tan brillante
+                        const Color(0xFF00FF88).withValues(alpha: 0.40 * _glow.value),
+                        const Color(0xFF00E870).withValues(alpha: 0.15 * _glow.value),
                         const Color(0xFF00CC55).withValues(alpha: 0.0),
                       ],
-                      stops: const [0.0, 0.45, 1.0],
+                      // Opcional: ajustar los stops para concentrar el brillo en el centro
+                      stops: const [0.0, 0.60, 1.0], 
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF00FF88).withValues(alpha: 0.45 * _glow.value),
-                        blurRadius: logoHeight * 0.5,
-                        spreadRadius: logoHeight * 0.1,
+                        // 3. Reducimos la opacidad de la sombra exterior
+                        color: const Color(0xFF00FF88).withValues(alpha: 0.20 * _glow.value),
+                        // 4. Reducimos la expansión y el difuminado para que no ocupe tanto espacio
+                        blurRadius: logoHeight * 0.4, 
+                        spreadRadius: logoHeight * 0.02, 
                       ),
                     ],
                   ),

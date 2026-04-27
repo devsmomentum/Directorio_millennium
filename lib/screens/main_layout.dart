@@ -66,8 +66,13 @@ class _MainLayoutState extends State<MainLayout> {
     if (_flashCouponShown || !mounted) return;
     _flashCouponShown = true;
     try {
-      final coupon = await CouponService.instance.fetchActiveFlashCoupon();
+      final prefs = await SharedPreferences.getInstance();
+      final lastId = prefs.getString('last_flash_coupon_id');
+      final coupon = await CouponService.instance
+          .fetchActiveFlashCoupon(excludeId: lastId);
       if (!mounted || coupon == null) return;
+      await prefs.setString('last_flash_coupon_id', coupon.id);
+      if (!mounted) return;
       await FlashCouponDialog.show(context, coupon);
     } catch (e) {
       debugPrint('[MainLayout] flash coupon error: $e');
