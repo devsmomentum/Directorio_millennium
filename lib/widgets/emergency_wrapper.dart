@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:media_kit/media_kit.dart';
 import '../theme/app_theme.dart';
 
 class EmergencyWrapper extends StatefulWidget {
@@ -23,6 +26,11 @@ class _EmergencyWrapperState extends State<EmergencyWrapper> with SingleTickerPr
   RealtimeChannel? _channel;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+
+  // Linux usa media_kit (ya inicializado en main.dart).
+  // Android y resto usan audioplayers.
+  AudioPlayer? _audioPlayer;
+  Player? _mkPlayer;
 
   @override
   void initState() {
@@ -79,6 +87,7 @@ class _EmergencyWrapperState extends State<EmergencyWrapper> with SingleTickerPr
     if (response.isNotEmpty) {
       await _updateEmergencyState(response.first);
     } else {
+      await _stopAlarm();
       if (mounted) {
         setState(() {
           _isEmergencyActive = false;
@@ -91,16 +100,17 @@ class _EmergencyWrapperState extends State<EmergencyWrapper> with SingleTickerPr
   Future<void> _updateEmergencyState(Map<String, dynamic> kioskData) async {
     final prefs = await SharedPreferences.getInstance();
     final currentKioskId = prefs.getString('kiosk_id') ?? '';
+    final isOrigin = kioskData['id'].toString() == currentKioskId;
 
     if (mounted) {
       setState(() {
         _isEmergencyActive = true;
         _emergencyFloor = kioskData['floor_level']?.toString() ?? 'Desconocido';
-        
+
         final name = kioskData['name']?.toString() ?? '';
         final loc = kioskData['location']?.toString() ?? '';
         final locName = kioskData['location_name']?.toString() ?? '';
-        
+
         String finalLocation = '';
         if (loc.isNotEmpty) {
           finalLocation = loc;
@@ -109,12 +119,33 @@ class _EmergencyWrapperState extends State<EmergencyWrapper> with SingleTickerPr
         } else {
           finalLocation = name.isNotEmpty ? name : 'Ubicación desconocida';
         }
-        
+
         _emergencyLocation = finalLocation;
         _myKioskId = currentKioskId;
-        _isOrigin = kioskData['id'].toString() == currentKioskId;
+        _isOrigin = isOrigin;
       });
     }
+
+    if (isOrigin) {
+      await _playAlarm();
+    }
+  }
+
+  Future<void> _playAlarm() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
+      _mkPlayer ??= Player();
+      await _mkPlayer!.open(Media('asset:///assets/audio/alarma.mp3'));
+      _mkPlayer!.setPlaylistMode(PlaylistMode.loop);
+    } else {
+      _audioPlayer ??= AudioPlayer();
+      await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
+      await _audioPlayer!.play(AssetSource('audio/alarma.mp3'));
+    }
+  }
+
+  Future<void> _stopAlarm() async {
+    await _audioPlayer?.stop();
+    await _mkPlayer?.stop();
   }
 
   Future<void> _deactivateEmergency() async {
@@ -133,6 +164,8 @@ class _EmergencyWrapperState extends State<EmergencyWrapper> with SingleTickerPr
   void dispose() {
     _channel?.unsubscribe();
     _pulseController.dispose();
+    _audioPlayer?.dispose();
+    _mkPlayer?.dispose();
     super.dispose();
   }
 
