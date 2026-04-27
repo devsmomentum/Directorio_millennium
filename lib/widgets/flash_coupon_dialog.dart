@@ -102,17 +102,32 @@ class _FlashCouponDialogState extends State<FlashCouponDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Stack(
+                alignment: Alignment.center,
                 children: [
-                  const Icon(Icons.flash_on, color: Colors.amber, size: 26),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      '¡Flash Coupon!',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                      overflow: TextOverflow.ellipsis,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.flash_on, color: Colors.amber, size: 26),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '¡Flash Coupon!',
+                          style: theme.textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    right: 0,
+                    child: IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      color: Colors.grey.shade500,
+                      tooltip: 'Cerrar sin reclamar',
                     ),
                   ),
                 ],

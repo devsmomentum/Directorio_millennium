@@ -25,7 +25,7 @@ class StartTransitionOverlay extends StatefulWidget {
     super.key,
     required this.logoUrl,
     required this.onComplete,
-    this.duration = const Duration(seconds: 3),
+    this.duration = const Duration(milliseconds: 1400),
     this.startLogoHeight = 100.0,
     this.endScale = 6.0,
     this.startAlignment = const Alignment(0.92, -0.92),
@@ -119,17 +119,25 @@ class _StartTransitionOverlayState extends State<StartTransitionOverlay>
               Align(
                 alignment: _alignment.value,
                 child: Container(
-                  width: logoHeight * 1.6,
-                  height: logoHeight * 1.6,
+                  width: logoHeight * 2.2,
+                  height: logoHeight * 2.2,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        Colors.white.withValues(alpha: 0.18 * _glow.value),
-                        Colors.white.withValues(alpha: 0.0),
+                        const Color(0xFF00FF88).withValues(alpha: 0.72 * _glow.value),
+                        const Color(0xFF00E870).withValues(alpha: 0.38 * _glow.value),
+                        const Color(0xFF00CC55).withValues(alpha: 0.0),
                       ],
-                      stops: const [0.0, 1.0],
+                      stops: const [0.0, 0.45, 1.0],
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00FF88).withValues(alpha: 0.45 * _glow.value),
+                        blurRadius: logoHeight * 0.5,
+                        spreadRadius: logoHeight * 0.1,
+                      ),
+                    ],
                   ),
                 ),
               ),

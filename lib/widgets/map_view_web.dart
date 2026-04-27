@@ -1234,8 +1234,27 @@ class MapViewWebState extends State<MapViewWeb> {
       const radiusX = Math.max((maxTargetX - minTargetX) * 0.5, 1.0);
       const radiusZ = Math.max((maxTargetZ - minTargetZ) * 0.5, 1.0);
       const baseRadius = Math.max(radiusX, radiusZ);
+
+      // ─────────────────────────────────────────────────────────────────────
+      // AJUSTE MANUAL DE CÁMARA INICIAL — modifica estos dos valores:
+      //
+      //   INITIAL_DISTANCE_FACTOR  →  qué tan lejos arranca la cámara.
+      //     Valores típicos: 1.2 (cerca) … 2.5 (muy lejos).
+      //     Sube el número para alejar; bájalo para acercar.
+      //
+      //   CAM_HEIGHT_FACTOR        →  cuánto sube la cámara (eje Y).
+      //   CAM_DEPTH_FACTOR         →  cuánto se inclina hacia adelante (eje Z).
+      //     Relación altura/profundidad controla el ángulo de visión:
+      //       0.9 / 0.5  →  ~60° elevación (semi-isométrico)
+      //       1.1 / 0.3  →  ~75° elevación (casi cenital)
+      //       0.5 / 0.85 →  ~30° elevación (rasante, perspectiva dramática)
+      // ─────────────────────────────────────────────────────────────────────
+      const INITIAL_DISTANCE_FACTOR = 1.7;  // ← CAMBIA AQUÍ el zoom inicial
+      const CAM_HEIGHT_FACTOR       = 0.7;  // ← CAMBIA AQUÍ la altura
+      const CAM_DEPTH_FACTOR        = 0.5;  // ← CAMBIA AQUÍ la inclinación
+
       const distance = THREE.MathUtils.clamp(
-        baseRadius * 1.5,
+        baseRadius * INITIAL_DISTANCE_FACTOR,
         minDistance + 0.2,
         maxDistance - 0.2,
       );
@@ -1247,13 +1266,10 @@ class MapViewWebState extends State<MapViewWeb> {
       }
 
       const nextTarget = targetCenter.clone();
-      
-      // La cámara inclinada (no totalmente desde arriba)
-      // Y = distance * 0.5, Z = distance * 0.85 => forma un ángulo más inclinado
       const nextCamPos = new THREE.Vector3(
         targetCenter.x,
-        targetCenter.y + distance * 0.5,
-        targetCenter.z + distance * 0.85,
+        targetCenter.y + distance * CAM_HEIGHT_FACTOR,
+        targetCenter.z + distance * CAM_DEPTH_FACTOR,
       );
 
       startCameraTransition(nextCamPos, nextTarget);
@@ -2208,7 +2224,7 @@ class MapViewWebState extends State<MapViewWeb> {
         // sin perder el techo de zoom-out (radiusXZ * 1.05) que se necesita
         // para ver el mapa entero al cargar.
         minDistance = Math.max(radiusXZ * 0.08, 0.4);
-        maxDistance = Math.max(radiusXZ * 1.05, minDistance + 2.4);
+        maxDistance = Math.max(radiusXZ * 2.8, minDistance + 2.4);
         controls.minDistance = minDistance;
         controls.maxDistance = maxDistance;
 
