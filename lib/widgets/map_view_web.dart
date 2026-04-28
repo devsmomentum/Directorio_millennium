@@ -244,7 +244,7 @@ class MapViewWebState extends State<MapViewWeb> {
     <canvas id="map-canvas"></canvas>
 
     <div id="html-loading-overlay"></div>
-
+<!--
     <div id="map-controls">
       <!-- Zoom In (+) -->
       <button id="zoom-in-btn" class="control-btn" type="button" aria-label="Acercar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z%22/></svg>');"></button>
@@ -261,7 +261,7 @@ class MapViewWebState extends State<MapViewWeb> {
       <!-- Center View -->
       <button id="center-view-btn" class="control-btn" type="button" aria-label="Centrar mapa" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF007A%22><path d=%22M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z%22/></svg>');"></button>
     </div>
-
+-->
     <div id="calib-panel">
       <h4>Calibración mapa (C)</h4>
       <div class="calib-row">

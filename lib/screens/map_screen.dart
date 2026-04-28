@@ -60,6 +60,9 @@ class _MapScreenState extends State<MapScreen> {
   bool _canScrollLeft = false;
   bool _canScrollRight = true;
 
+  // NUEVO ESTADO DE UI
+  bool _isSearchVisible = false;
+
   List<Store> _allStores = [];
   List<Store> _filteredStores = [];
   String _selectedCategory = 'Todas';
@@ -84,31 +87,23 @@ class _MapScreenState extends State<MapScreen> {
   // Tienda seleccionada → para feedback UI de ruta activa
   Store? _selectedStoreForRoute;
 
-  // Flag para evitar loop en Flutter Web: `startAvatarRoute` recarga el HTML
-  // y `onMapLoaded` vuelve a dispararse; sin este flag, llamaría de nuevo a
-  // `_runAvatarRouteTo` → otra recarga → loop infinito. Se marca true cuando
-  // la ruta ya fue enviada al WebView, y se resetea en cada nueva selección.
+  // Flag para evitar loop en Flutter Web
   bool _routeDispatched = false;
 
-  // ── Orquestación de estado del mapa (Idle / PathRendering / CharacterWalking
-  //    / Arrived). Aísla la ruta dibujada del ciclo del personaje: la ruta
-  //    sólo se borra en `onViewChanged()` o al recibir una nueva selección.
   late final StoreSelectionService _selectionService;
   late final PathRendererController _pathRenderer;
   late final CharacterAnimatorController _characterAnimator;
   late final MapStateManager _stateManager;
 
-  // Calibración del modelo por piso (cargada desde map_calibration en Supabase)
+  // Calibración del modelo por piso
   Map<String, Map<String, double>> _floorCalibrations = {};
 
   @override
   void initState() {
     super.initState();
     _floorKeys = {for (final f in _kAllFloors) f: GlobalKey<MapViewWebState>()};
-    _activatedFloors.add(_selectedFloor); // RG activo desde el inicio
+    _activatedFloors.add(_selectedFloor);
 
-    // Cableado del orquestador de estado del mapa. El dispatcher delega al
-    // método existente que calcula la ruta y la envía al WebView.
     _selectionService = StoreSelectionService();
     _pathRenderer = PathRendererController();
     _characterAnimator = CharacterAnimatorController();
@@ -123,7 +118,6 @@ class _MapScreenState extends State<MapScreen> {
     _loadData();
     _setupRealtime();
     _categoryScrollController.addListener(_updateCategoryScrollState);
-    // Recarga cuando el técnico cambia el kiosco desde el header.
     KioskBus.selectionTick.addListener(_onKioskChanged);
   }
 
@@ -133,8 +127,6 @@ class _MapScreenState extends State<MapScreen> {
     _realtimeChannel?.unsubscribe();
     _searchController.dispose();
     _categoryScrollController.dispose();
-    // Cambio de vista → limpia ruta + personaje (uno de los dos únicos
-    // triggers autorizados para destruir el trail).
     _stateManager.onViewChanged();
     _stateManager.dispose();
     _selectionService.dispose();
@@ -144,9 +136,6 @@ class _MapScreenState extends State<MapScreen> {
   void _onKioskChanged() {
     debugPrint('[MapScreen] KioskBus → recargando datos por cambio de kiosco');
     _selectedStoreForRoute = null;
-    // Cambio de kiosco = cambio de origen → la ruta previa pierde sentido.
-    // El state manager se encarga del stop+clear en TODOS los pisos vía
-    // routeStopper; no duplicamos llamadas aquí.
     _stateManager.onViewChanged();
     _loadData(isSilent: true);
   }
@@ -200,10 +189,7 @@ class _MapScreenState extends State<MapScreen> {
         setState(() => _isLoading = true);
       }
 
-      final catsResponse = await client
-          .from('categories')
-          .select()
-          .order('name');
+      final catsResponse = await client.from('categories').select().order('name');
       final stores = await _supabaseService.getStores();
 
       await box.put('cached_categories', catsResponse);
@@ -215,8 +201,6 @@ class _MapScreenState extends State<MapScreen> {
       final edges = await _supabaseService.getMapEdges();
       final polygons = await _supabaseService.getMapPolygons();
 
-      // Cargar calibraciones de todos los pisos desde Supabase.
-      // Requiere la tabla map_calibration (ver SQL exportado por el editor).
       try {
         final calibRows = await Supabase.instance.client
             .from('map_calibration')
@@ -235,7 +219,6 @@ class _MapScreenState extends State<MapScreen> {
         _floorCalibrations = calibMap;
         debugPrint('[MapScreen] Calibraciones cargadas: ${calibMap.keys.join(', ')}');
       } catch (e) {
-        // La tabla puede no existir aún; continuar con calibración por defecto.
         debugPrint('[MapScreen] map_calibration no disponible: $e');
       }
 
@@ -245,39 +228,24 @@ class _MapScreenState extends State<MapScreen> {
       String? kioskFloor;
       String? kioskNodeId;
       if (kioskId == null) {
-        debugPrint(
-          '[MapScreen] ⚠ No hay kiosk_id en SharedPreferences — '
-          'el técnico debe seleccionar un kiosco desde el header.',
-        );
+        debugPrint('[MapScreen] ⚠ No hay kiosk_id en SharedPreferences.');
       } else {
         final kioskData = await _supabaseService.getKioskById(kioskId);
         if (kioskData == null) {
-          debugPrint(
-            '[MapScreen] ⚠ Kiosco "$kioskId" no existe en Supabase.',
-          );
-        } else if (kioskData['node_id'] == null ||
-            (kioskData['node_id'] as String).isEmpty) {
-          debugPrint(
-            '[MapScreen] ⚠ El kiosco "$kioskId" existe pero tiene node_id NULL '
-            'en la base de datos. Asígnale un nodo del grafo.',
-          );
+          debugPrint('[MapScreen] ⚠ Kiosco "$kioskId" no existe en Supabase.');
+        } else if (kioskData['node_id'] == null || (kioskData['node_id'] as String).isEmpty) {
+          debugPrint('[MapScreen] ⚠ El kiosco "$kioskId" existe pero tiene node_id NULL.');
         } else {
           kioskNodeId = kioskData['node_id'] as String;
           final nodeMatch = nodes.where((n) => n.id == kioskNodeId).toList();
           if (nodeMatch.isEmpty) {
-            debugPrint(
-              '[MapScreen] ⚠ node_id "$kioskNodeId" del kiosco no está en '
-              'map_nodes. ¿Límite de filas en la consulta?',
-            );
+            debugPrint('[MapScreen] ⚠ node_id "$kioskNodeId" del kiosco no está en map_nodes.');
           } else {
             kioskFloor = nodeMatch.first.floorLevel;
           }
         }
       }
 
-      // Construimos el servicio ANTES del setState para que, aunque el
-      // callback onMapLoaded del WebView se dispare en el mismo frame, ya
-      // encuentre el grafo listo.
       final navService = AvatarNavigationService(
         nodes: nodes,
         edges: edges,
@@ -312,9 +280,7 @@ class _MapScreenState extends State<MapScreen> {
       if (catsData != null && storesData != null) {
         final catsResponse = List<dynamic>.from(catsData);
         final storesJson = List<dynamic>.from(storesData);
-        final stores = storesJson
-            .map((s) => Store.fromJson(Map<String, dynamic>.from(s)))
-            .toList();
+        final stores = storesJson.map((s) => Store.fromJson(Map<String, dynamic>.from(s))).toList();
         _updateUIWithData(catsResponse, stores);
       } else {
         throw Exception("No hay cache disponible.");
@@ -351,114 +317,38 @@ class _MapScreenState extends State<MapScreen> {
   IconData _getIconData(String? iconName) {
     final normalized = iconName?.trim().toLowerCase() ?? '';
     switch (normalized) {
-      case 'comida':
-      case 'feria':
-      case 'restaurante':
-      case 'fastfood':
-        return Icons.fastfood_rounded;
-      case 'cafe':
-      case 'postres':
-      case 'cafeteria':
-      case 'local_cafe':
-        return Icons.local_cafe_rounded;
-      case 'heladeria':
-      case 'helados':
-        return Icons.icecream_rounded;
-      case 'ropa':
-      case 'moda':
-      case 'boutique':
-      case 'checkroom':
-        return Icons.checkroom_rounded;
-      case 'zapatos':
-      case 'calzado':
-      case 'zapateria':
-        return Icons.roller_skating_rounded;
-      case 'tecnologia':
-      case 'electronica':
-      case 'celulares':
-      case 'devices':
-        return Icons.devices_rounded;
-      case 'videojuegos':
-      case 'juegos':
-      case 'sports_esports':
-        return Icons.sports_esports_rounded;
-      case 'belleza':
-      case 'maquillaje':
-      case 'spa':
-      case 'peluqueria':
-        return Icons.spa_rounded;
-      case 'salud':
-      case 'farmacia':
-      case 'clinica':
-      case 'local_hospital':
-        return Icons.local_hospital_rounded;
-      case 'optica':
-      case 'lentes':
-        return Icons.remove_red_eye_rounded;
-      case 'cine':
-      case 'peliculas':
-      case 'movie':
-        return Icons.movie_rounded;
-      case 'ninos':
-      case 'jugueteria':
-      case 'infantil':
-      case 'child_friendly':
-        return Icons.child_friendly_rounded;
-      case 'mascotas':
-      case 'veterinaria':
-      case 'pets':
-        return Icons.pets_rounded;
-      case 'compras':
-      case 'shopping':
-      case 'shopping_bag':
-      case 'tienda':
-        return Icons.shopping_bag_rounded;
-      case 'supermercado':
-      case 'bodegon':
-      case 'market':
-        return Icons.shopping_cart_rounded;
-      case 'banco':
-      case 'cajero':
-      case 'finanzas':
-        return Icons.account_balance_rounded;
-      case 'servicios':
-      case 'reparacion':
-      case 'home_repair_service':
-        return Icons.home_repair_service_rounded;
-      case 'deportes':
-      case 'gimnasio':
-      case 'fitness_center':
-        return Icons.fitness_center_rounded;
-      case 'joyeria':
-      case 'relojes':
-        return Icons.watch_rounded;
-      case 'hogar':
-      case 'muebles':
-        return Icons.chair_rounded;
-      case 'musica':
-      case 'instrumentos':
-        return Icons.music_note_rounded;
-      default:
-        return Icons.storefront_rounded;
+      case 'comida': case 'feria': case 'restaurante': case 'fastfood': return Icons.fastfood_rounded;
+      case 'cafe': case 'postres': case 'cafeteria': case 'local_cafe': return Icons.local_cafe_rounded;
+      case 'heladeria': case 'helados': return Icons.icecream_rounded;
+      case 'ropa': case 'moda': case 'boutique': case 'checkroom': return Icons.checkroom_rounded;
+      case 'zapatos': case 'calzado': case 'zapateria': return Icons.roller_skating_rounded;
+      case 'tecnologia': case 'electronica': case 'celulares': case 'devices': return Icons.devices_rounded;
+      case 'videojuegos': case 'juegos': case 'sports_esports': return Icons.sports_esports_rounded;
+      case 'belleza': case 'maquillaje': case 'spa': case 'peluqueria': return Icons.spa_rounded;
+      case 'salud': case 'farmacia': case 'clinica': case 'local_hospital': return Icons.local_hospital_rounded;
+      case 'optica': case 'lentes': return Icons.remove_red_eye_rounded;
+      case 'cine': case 'peliculas': case 'movie': return Icons.movie_rounded;
+      case 'ninos': case 'jugueteria': case 'infantil': case 'child_friendly': return Icons.child_friendly_rounded;
+      case 'mascotas': case 'veterinaria': case 'pets': return Icons.pets_rounded;
+      case 'compras': case 'shopping': case 'shopping_bag': case 'tienda': return Icons.shopping_bag_rounded;
+      case 'supermercado': case 'bodegon': case 'market': return Icons.shopping_cart_rounded;
+      case 'banco': case 'cajero': case 'finanzas': return Icons.account_balance_rounded;
+      case 'servicios': case 'reparacion': case 'home_repair_service': return Icons.home_repair_service_rounded;
+      case 'deportes': case 'gimnasio': case 'fitness_center': return Icons.fitness_center_rounded;
+      case 'joyeria': case 'relojes': return Icons.watch_rounded;
+      case 'hogar': case 'muebles': return Icons.chair_rounded;
+      case 'musica': case 'instrumentos': return Icons.music_note_rounded;
+      default: return Icons.storefront_rounded;
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // LÓGICA DE ORDENAMIENTO Y BÚSQUEDA AVANZADA (NUEVO)
-  // ══════════════════════════════════════════════════════════════════════════
-
-  /// Define el nivel de prioridad de cada plan. Número menor = mayor prioridad.
   int _getPlanPriority(String? plan) {
     if (plan == null) return 4;
     switch (plan.toUpperCase()) {
-      case 'DIAMANTE':
-        return 1;
-      case 'ORO':
-        return 2;
-      case 'IA_PERFORMANCE':
-        return 3;
-      default:
-        return 4; // Otros casos o nulos
+      case 'DIAMANTE': return 1;
+      case 'ORO': return 2;
+      case 'IA_PERFORMANCE': return 3;
+      default: return 4;
     }
   }
 
@@ -466,78 +356,52 @@ class _MapScreenState extends State<MapScreen> {
     String query = _searchController.text.toLowerCase().trim();
     
     setState(() {
-      // 1. Filtrado de datos (Por Nombre, Categoría o Descripción/Nicho)
       _filteredStores = _allStores.where((store) {
-        // Obtenemos los campos de forma segura
         final name = store.name.toLowerCase();
         final category = store.category.toLowerCase();
-        // Asume que tienes `description` en tu modelo Store. Si no, quita esta línea.
-        final description = store.description.toLowerCase() ?? ''; 
+        final description = store.description?.toLowerCase() ?? ''; 
 
-        final matchesQuery = query.isEmpty ||
-            name.contains(query) ||
-            category.contains(query) ||
-            description.contains(query);
-
-        final matchesCategory = _selectedCategory == 'Todas' ||
-            category.contains(_selectedCategory.toLowerCase());
+        final matchesQuery = query.isEmpty || name.contains(query) || category.contains(query) || description.contains(query);
+        final matchesCategory = _selectedCategory == 'Todas' || category.contains(_selectedCategory.toLowerCase());
 
         return matchesQuery && matchesCategory;
       }).toList();
 
-      // 2. Ordenamiento por Prioridad de Plan
       _filteredStores.sort((a, b) {
-        // Asume que tu modelo Store tiene el campo planType o plan_type
         int priorityA = _getPlanPriority(a.planType);
         int priorityB = _getPlanPriority(b.planType);
 
         if (priorityA != priorityB) {
-          // Si tienen distinto plan, prioriza el de menor número (1 Diamante > 4 Null)
           return priorityA.compareTo(priorityB);
         }
-        
-        // Si tienen el mismo plan, ordenamos alfabéticamente por el nombre
         return a.name.compareTo(b.name);
       });
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-
   MapRoute? _findFirstRouteForStore(Store store) {
     if (_currentKioskId != null) {
       for (final route in _allRoutes) {
-        if (route.destType == 'store' &&
-            route.destId == store.id &&
-            route.originType == 'kiosk' &&
-            route.originId == _currentKioskId) {
+        if (route.destType == 'store' && route.destId == store.id && route.originType == 'kiosk' && route.originId == _currentKioskId) {
           return route;
         }
       }
     }
     for (final route in _allRoutes) {
-      if (route.destType == 'store' && route.destId == store.id) {
-        return route;
-      }
+      if (route.destType == 'store' && route.destId == store.id) return route;
     }
     for (final route in _allRoutes) {
-      if (route.originType == 'store' && route.originId == store.id) {
-        return route;
-      }
+      if (route.originType == 'store' && route.originId == store.id) return route;
     }
     return null;
   }
 
   MapPolygon? _findPolygonForStore(Store store) {
     for (final polygon in _allPolygons) {
-      if (polygon.storeId == store.id) {
-        return polygon;
-      }
+      if (polygon.storeId == store.id) return polygon;
     }
     return null;
   }
-
-
 
   void _onStoreTapped(Store store) {
     AnalyticsService().logEvent(
@@ -546,17 +410,9 @@ class _MapScreenState extends State<MapScreen> {
       itemName: store.name,
       itemId: store.id,
     );
-
-    // El tap no calcula la ruta directamente: emite el evento y deja que el
-    // MapStateManager orqueste (clearPath previo → PathRendering → walking).
-    // El cambio de piso, si aplica, lo hace `_dispatchRouteForStore`.
     _selectionService.select(store);
   }
 
-  /// Detiene avatar + trail en todos los pisos que tengan WebView vivo.
-  /// Lo usa el [MapStateManager] como `routeStopper` cuando cambia la vista
-  /// o llega una nueva selección — así nunca queda un loop de caminar
-  /// huérfano corriendo en el piso anterior.
   Future<void> _stopRouteOnAllFloors() async {
     for (final floor in _activatedFloors) {
       final mapView = _floorKeys[floor]?.currentState;
@@ -570,15 +426,12 @@ class _MapScreenState extends State<MapScreen> {
     _routeDispatched = false;
   }
 
-  /// Dispatcher inyectado al [MapStateManager]. Devuelve `true` si la ruta
-  /// se envió al WebView (o si está en cola legítimamente esperando que el
-  /// piso destino termine de cargar). `false` significa fallo definitivo.
   Future<bool> _dispatchRouteForStore(Store store) async {
     final targetFloorName = store.floorLevel;
 
     setState(() {
       _selectedStoreForRoute = store;
-      _routeDispatched = false; // nueva selección → permitir dispatch
+      _routeDispatched = false; 
     });
 
     if (targetFloorName != null && targetFloorName != _selectedFloor) {
@@ -589,42 +442,24 @@ class _MapScreenState extends State<MapScreen> {
       if (_loadedFloors.contains(targetFloorName)) {
         return _runAvatarRouteTo(store);
       }
-      // El piso aún no cargó: `_onFloorMapLoaded` disparará el dispatch
-      // cuando esté listo. Consideramos OK desde el punto de vista del
-      // state manager — sólo notificaremos `onPathRendered` cuando el
-      // WebView realmente lo emita.
       return true;
     }
 
     return _runAvatarRouteTo(store);
   }
 
-  /// Calcula y lanza la animación del avatar hacia la tienda. Devuelve
-  /// `true` si la ruta fue enviada al WebView; `false` ante cualquier
-  /// condición que impida arrancar (sin kiosko, ruta vacía, etc.) — el
-  /// state manager usa el booleano para volver a `Idle` con limpieza.
   Future<bool> _runAvatarRouteTo(Store store) async {
     final nav = _navService;
     if (nav == null || !nav.isReady) {
-      debugPrint(
-        '[MapScreen] Servicio de navegación no listo aún '
-        '(nav=${nav != null}, ready=${nav?.isReady ?? false}). '
-        'Reintentaré cuando termine de cargar.',
-      );
+      debugPrint('[MapScreen] Servicio de navegación no listo aún.');
       return false;
     }
     if (_currentKioskNodeId == null || _currentKioskNodeId!.isEmpty) {
-      debugPrint(
-        '[MapScreen] No se puede navegar: kiosk_id=$_currentKioskId '
-        'sin node_id asignado en la tabla kiosks.',
-      );
+      debugPrint('[MapScreen] No se puede navegar: kiosk_id sin node_id asignado.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'El kiosco actual no tiene un nodo de mapa asignado. '
-              'Configúralo en Supabase.',
-            ),
+            content: Text('El kiosco actual no tiene un nodo de mapa asignado.'),
             backgroundColor: AppColors.error,
             duration: Duration(seconds: 3),
           ),
@@ -634,11 +469,6 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     final currentFloorNum = _selectedFloor;
-    debugPrint(
-      '[MapScreen] Calculando ruta: kiosko=$_currentKioskNodeId → '
-      'tienda="${store.name}" (node=${store.nodeId}) '
-      'piso=$currentFloorNum',
-    );
     final route = nav.routeFromKioskToStore(
       kioskNodeId: _currentKioskNodeId,
       store: store,
@@ -646,9 +476,7 @@ class _MapScreenState extends State<MapScreen> {
     );
 
     if (route.isEmpty || route.waypoints.isEmpty) {
-      debugPrint(
-        '[MapScreen] Sin ruta disponible: ${route.errorMessage ?? "desconocido"}',
-      );
+      debugPrint('[MapScreen] Sin ruta disponible: ${route.errorMessage ?? "desconocido"}');
       if (mounted && route.errorMessage != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -658,16 +486,11 @@ class _MapScreenState extends State<MapScreen> {
           ),
         );
       }
-      // Al menos posicionamos el avatar en el kiosko si tenemos su nodo.
       _placeAvatarAtKiosk();
       return false;
     }
 
-    // La cámara la posiciona el JS (fitCameraToRoute) para encuadrar el
-    // recorrido completo desde el kiosco hasta la tienda.
     final mapView = _floorKeys[_selectedFloor]?.currentState;
-    // Marcar ANTES del envío: en web la recarga de HTML puede disparar
-    // onMapLoaded muy rápido y llegar antes de que esta línea se ejecute.
     _routeDispatched = true;
     await mapView?.startAvatarRoute(route.waypoints);
     return true;
@@ -688,6 +511,31 @@ class _MapScreenState extends State<MapScreen> {
     _floorKeys[_selectedFloor]?.currentState?.setAvatarAtWorld(world.x, world.y, world.z);
   }
 
+  void _onFloorMapLoaded(String floor) {
+    debugPrint('[MapScreen] Mapa del piso $floor cargado');
+    _loadedFloors.add(floor);
+
+    final calib = _floorCalibrations[floor];
+    if (calib != null) {
+      _floorKeys[floor]?.currentState?.setMapCalibration(
+        scale: calib['scale']!,
+        ox: calib['ox']!,
+        oy: calib['oy']!,
+        oz: calib['oz']!,
+        rotY: calib['rotY']!,
+      );
+    }
+
+    if (floor != _selectedFloor) return;
+
+    if (_selectedStoreForRoute != null && !_routeDispatched) {
+      _runAvatarRouteTo(_selectedStoreForRoute!);
+    }
+  }
+
+  // ============================================================================
+  // BUILD PRINCIPAL 
+  // ============================================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -695,238 +543,470 @@ class _MapScreenState extends State<MapScreen> {
       body: ScreenAdBanners(
         showTop: false,
         showBottom: false,
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Column(
-              children: [
-                // ── Fila 1: Barra de búsqueda ──
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: SizedBox(
-                    height: 48,
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (_) => _filterStores(),
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Busca tienda, categoría, nicho...', // Texto más intuitivo
-                        hintStyle: const TextStyle(color: AppColors.textHint),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: AppColors.primary,
-                          size: 24,
-                        ),
-                        filled: true,
-                        fillColor: AppColors.surfaceLight,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // ── Fila 2: Categorías con Flechas Dinámicas estilo iOS ──
-                SizedBox(
-                  height: 48,
-                  child: Row(
-                    children: [
-                      AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
-                        opacity: _canScrollLeft ? 1.0 : 0.0,
-                        child: GestureDetector(
-                          onTap: _canScrollLeft ? () {
-                            _categoryScrollController.animateTo(
-                              _categoryScrollController.offset - 250,
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          } : null,
-                          child: Container(
-                            color: Colors.transparent,
-                            padding: const EdgeInsets.only(left: 16, right: 8),
-                            child: const Icon(
-                              Icons.arrow_back_ios_new_rounded,
-                              size: 18,
-                              color: AppColors.textSecondaryMuted,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      Expanded(
-                        child: ListView.builder(
-                          controller: _categoryScrollController,
-                          scrollDirection: Axis.horizontal,
-                          padding: EdgeInsets.only(
-                            left: _canScrollLeft ? 0 : 12,
-                            right: _canScrollRight ? 0 : 12,
-                          ),
-                          itemCount: _categories.length,
-                          itemBuilder: (context, index) {
-                            final cat = _categories[index];
-                            final isSelected = _selectedCategory == cat['name'];
-                            return GestureDetector(
-                              onTap: () {
-                                AnalyticsService().logEvent(
-                                  eventType: 'filter',
-                                  module: 'directory',
-                                  itemName: 'Categoria: ${cat['name']}',
-                                );
-                                setState(() => _selectedCategory = cat['name']);
-                                _filterStores();
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 250),
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 4,
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? AppColors.primary
-                                      : AppColors.surfaceLight,
-                                  borderRadius: BorderRadius.circular(30),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      cat['icon'] as IconData,
-                                      color: isSelected
-                                          ? AppColors.textPrimary
-                                          : AppColors.textSecondaryMuted,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      cat['name'] as String,
-                                      style: TextStyle(
-                                        color: isSelected
-                                            ? AppColors.textPrimary
-                                            : AppColors.textSecondaryMuted,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-
-                      AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
-                        opacity: _canScrollRight ? 1.0 : 0.0,
-                        child: GestureDetector(
-                          onTap: _canScrollRight ? () {
-                            _categoryScrollController.animateTo(
-                              _categoryScrollController.offset + 250,
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          } : null,
-                          child: Container(
-                            color: Colors.transparent,
-                            padding: const EdgeInsets.only(left: 8, right: 16),
-                            child: const Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              size: 18,
-                              color: AppColors.textSecondaryMuted,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Fila 3: Tres columnas principales ──
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              child: !_isSearchVisible
+                  ? const SizedBox.shrink()
+                  : Column(
                       children: [
-                        // ═══ COLUMNA A: Lista de tiendas ═══
-                        Expanded(
-                          flex: 2,
-                          child: _isLoading
-                              ? const Center(
-                                  child: CircularProgressIndicator(
-                                    color: AppColors.primary,
-                                  ),
-                                )
-                              : _filteredStores.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                        'No se encontraron resultados',
-                                        style: TextStyle(
-                                          color: AppColors.textSecondaryMuted,
-                                        ),
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      padding: const EdgeInsets.only(right: 8, top: 4),
-                                      itemCount: _filteredStores.length,
-                                      itemBuilder: (context, index) {
-                                        return GestureDetector(
-                                          onTap: () => _onStoreTapped(
-                                            _filteredStores[index],
-                                          ),
-                                          child: _buildStoreCard(
-                                            _filteredStores[index],
-                                          ),
-                                        );
-                                      },
-                                    ),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: SizedBox(
+                            height: 44,
+                            child: TextField(
+                              controller: _searchController,
+                              onChanged: (_) => _filterStores(),
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: 'Busca tienda, categoría, nicho...',
+                                hintStyle: const TextStyle(color: AppColors.textHint),
+                                prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
+                                filled: true,
+                                fillColor: AppColors.surfaceLight,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                              ),
+                            ),
+                          ),
                         ),
-
-                        // ═══ COLUMNA B: Mapa placeholder ═══
-                        Expanded(
-                          flex: 5,
-                          child: _build3DMapArea(),
-                        ),
-
-                        // ═══ COLUMNA C: Selector de pisos ═══
-                        SizedBox(
-                          width: 60,
-                          child: _buildFloorSelector(),
-                        ),
+                        const SizedBox(height: 8),
+                        _buildCategoryRow(), 
                       ],
                     ),
-                  ),
-                ),
-              ],
             ),
 
-            // Nota: el selector de kiosco vive ahora en AppHeader
-            // (long-press sobre el logo). La suscripción a KioskBus en
-            // _onKioskChanged dispara la recarga automática.
+            _buildPremiumLogosAndSearchRow(),
+
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _build3DMapArea(),
+                  ),
+                  // Overlay: Selector de pisos (Flotante e independiente)
+                  Positioned(
+                    right: 8,    // Margen derecho
+                    bottom: 16,  // Pegado a la parte inferior
+                    width: 32,   // Ancho exacto igual al de los botones
+                    // Quitamos 'top' y 'height' para que ocupe solo lo necesario
+                    child: _buildFloorSelector(),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Tarjeta de tienda — Diseño horizontal compacto
-  // ══════════════════════════════════════════════════════════════════════════
-  Widget _buildStoreCard(Store store) {
-    // Definimos un pequeño indicador visual dependiendo de si es Diamante u Oro (Opcional)
+  Widget _buildFallbackLogo(String storeName) {
+    // Tomamos hasta las primeras 2 letras del nombre
+    String initials = storeName.trim().isNotEmpty
+        ? storeName.trim().substring(0, storeName.trim().length > 1 ? 2 : 1).toUpperCase()
+        : '??';
+
+    return Container(
+      color: AppColors.surfaceLight, // Fondo sutil
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w900,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================================
+  // WIDGETS AUXILIARES
+  // ============================================================================
+
+Widget _buildPremiumLogosAndSearchRow() {
+    // Definimos si el usuario está "interactuando" con el buscador o los filtros
+    final bool isSearching = _searchController.text.trim().isNotEmpty || _selectedCategory != 'Todas';
+
+    // Si está interactuando, mostramos todas las coincidencias filtradas. 
+    // Si no, mostramos únicamente los logos de tiendas con planes.
+    final storesToShow = isSearching
+        ? _filteredStores
+        : _filteredStores.where((store) {
+            return store.planType != null && store.planType!.trim().isNotEmpty;
+          }).toList();
+
+    return Container(
+      height: 65,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+      child: Row(
+        children: [
+          Container(
+            margin: const EdgeInsets.only(left: 4, right: 8),
+            decoration: BoxDecoration(
+              color: _isSearchVisible ? AppColors.primary.withAlpha(40) : AppColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: Icon(
+                _isSearchVisible ? Icons.close_rounded : Icons.search_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isSearchVisible = !_isSearchVisible;
+                  // Si se oculta el buscador, limpiamos la búsqueda para regresar al estado inactivo
+                  if (!_isSearchVisible) {
+                    _searchController.clear();
+                    _selectedCategory = 'Todas';
+                    _filterStores();
+                  }
+                });
+              },
+            ),
+          ),
+          
+          Expanded(
+            child: storesToShow.isEmpty || _isLoading
+                ? const SizedBox.shrink()
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: storesToShow.length,
+                    itemBuilder: (context, index) {
+                      final store = storesToShow[index];
+                      Color borderColor = Colors.white10;
+                      if (store.planType?.toUpperCase() == 'DIAMANTE') {
+                        borderColor = AppColors.primary.withAlpha(150);
+                      } else if (store.planType?.toUpperCase() == 'ORO') {
+                        borderColor = Colors.amber.withAlpha(150);
+                      }
+
+                      return GestureDetector(
+                        onTap: () => _onStoreTapped(store),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          margin: const EdgeInsets.only(right: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: borderColor, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: borderColor.withOpacity(0.3),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              )
+                            ]
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            // NUEVO: Agregamos !store.logoUrl.contains('dummyimage.com')
+                            child: store.logoUrl.trim().isNotEmpty && 
+                                   store.logoUrl.startsWith('http') &&
+                                   !store.logoUrl.contains('dummyimage.com')
+                                ? Image.network(
+                                    store.logoUrl,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) => _buildFallbackLogo(store.name),
+                                  )
+                                : _buildFallbackLogo(store.name),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+  Widget _buildCategoryRow() {
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _canScrollLeft ? 1.0 : 0.0,
+            child: GestureDetector(
+              onTap: _canScrollLeft
+                  ? () {
+                      _categoryScrollController.animateTo(
+                        _categoryScrollController.offset - 250,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  : null,
+              child: Container(
+                color: Colors.transparent,
+                padding: const EdgeInsets.only(left: 16, right: 8),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 18,
+                  color: AppColors.textSecondaryMuted,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              controller: _categoryScrollController,
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.only(
+                left: _canScrollLeft ? 0 : 12,
+                right: _canScrollRight ? 0 : 12,
+              ),
+              itemCount: _categories.length,
+              itemBuilder: (context, index) {
+                final cat = _categories[index];
+                final isSelected = _selectedCategory == cat['name'];
+                return GestureDetector(
+                  onTap: () {
+                    AnalyticsService().logEvent(
+                      eventType: 'filter',
+                      module: 'directory',
+                      itemName: 'Categoria: ${cat['name']}',
+                    );
+                    setState(() => _selectedCategory = cat['name']);
+                    _filterStores();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: isSelected ? AppColors.primary : AppColors.surfaceLight,
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          cat['icon'] as IconData,
+                          color: isSelected ? AppColors.textPrimary : AppColors.textSecondaryMuted,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          cat['name'] as String,
+                          style: TextStyle(
+                            color: isSelected ? AppColors.textPrimary : AppColors.textSecondaryMuted,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _canScrollRight ? 1.0 : 0.0,
+            child: GestureDetector(
+              onTap: _canScrollRight
+                  ? () {
+                      _categoryScrollController.animateTo(
+                        _categoryScrollController.offset + 250,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  : null,
+              child: Container(
+                color: Colors.transparent,
+                padding: const EdgeInsets.only(left: 8, right: 16),
+                child: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 18,
+                  color: AppColors.textSecondaryMuted,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _build3DMapArea() {
+    const floorLabels = {
+      'RG': 'Nivel RG',
+      'PL': 'Nivel PL',
+      'C1': 'Nivel C1',
+      'C2': 'Nivel C2',
+      'C3': 'Nivel C3',
+      'C4': 'Nivel C4',
+    };
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(bottom: 4), 
+            child: Text(
+              floorLabels[_selectedFloor] ?? '🗺 MAPA',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: IndexedStack(
+                  index: _kAllFloors.indexOf(_selectedFloor),
+                  children: _kAllFloors.map((floor) {
+                    if (!_activatedFloors.contains(floor)) return const SizedBox.shrink();
+                    final modelUrl = 'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${floor.toLowerCase()}.glb';
+                    return MapViewWeb(
+                      key: _floorKeys[floor],
+                      modelUrl: modelUrl,
+                      avatarUrl: _kAvatarModelUrl,
+                      onMapLoaded: () => _onFloorMapLoaded(floor),
+                      onError: () => debugPrint('[MapScreen] Error cargando mapa de $floor'),
+                      onPathRendered: (steps) {
+                        if (floor != _selectedFloor) return;
+                        _stateManager.notifyPathRendered(stepCount: steps);
+                      },
+                      onAvatarArrived: () {
+                        if (floor != _selectedFloor) return;
+                        _stateManager.notifyCharacterArrived();
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+Widget _buildFloorSelector() {
+    final floors = ['RG','PL','C1','C2', 'C3', 'C4'];
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end, // Alinear hacia abajo
+      mainAxisSize: MainAxisSize.min, // Ocupar solo el espacio necesario
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, top: 2),
+          child: Container(
+            width: 32, // Mismo ancho que los botones
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceLight.withAlpha(150), // Fondo semi-transparente
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(
+              child: Text(
+                'PISO',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 7, // Ligeramente más pequeño para el contenedor
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Flexible(
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true, // La lista se encoge a su contenido
+            physics: const NeverScrollableScrollPhysics(), // Desactivar scroll si no hace falta
+            itemCount: floors.length,
+            itemBuilder: (context, index) {
+              final floor = floors[index];
+              final isSelected = _selectedFloor == floor;
+              return GestureDetector(
+                onTap: () {
+                  if (_selectedFloor == floor) return;
+                  setState(() {
+                    _selectedFloor = floor;
+                    _activatedFloors.add(floor);
+                  });
+                  if (_loadedFloors.contains(floor)) {
+                    final active = _selectedStoreForRoute;
+                    if (active != null) {
+                      _selectionService.select(active);
+                    } else {
+                      _stateManager.onViewChanged();
+                      _floorKeys[_selectedFloor]?.currentState?.hideAvatar();
+                    }
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 32, // Botones compactos
+                  height: 32,
+                  margin: const EdgeInsets.only(bottom: 6), // Margen solo abajo
+                  decoration: BoxDecoration(
+                    // Color semi-transparente SIEMPRE
+                    color: isSelected 
+                        ? AppColors.primary.withAlpha(200) 
+                        : AppColors.surfaceLight.withAlpha(150),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      floor,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : AppColors.textPrimary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+Widget _buildStoreCard(Store store) {
     Color borderColor = Colors.white10;
     if (store.planType?.toUpperCase() == 'DIAMANTE') {
-      borderColor = AppColors.primary.withAlpha(150); // Borde brillante para Diamante
+      borderColor = AppColors.primary.withAlpha(150);
     } else if (store.planType?.toUpperCase() == 'ORO') {
-      borderColor = Colors.amber.withAlpha(150); // Borde dorado para Oro
+      borderColor = Colors.amber.withAlpha(150);
     }
 
     return Container(
@@ -948,15 +1028,16 @@ class _MapScreenState extends State<MapScreen> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                store.logoUrl,
-                fit: BoxFit.contain, 
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.store,
-                  size: 24,
-                  color: AppColors.textHint,
-                ),
-              ),
+              // NUEVA VALIDACIÓN: Aplicada también a las tarjetas
+              child: store.logoUrl.trim().isNotEmpty && 
+                     store.logoUrl.startsWith('http') &&
+                     !store.logoUrl.contains('dummyimage.com')
+                  ? Image.network(
+                      store.logoUrl,
+                      fit: BoxFit.contain, 
+                      errorBuilder: (_, __, ___) => _buildFallbackLogo(store.name),
+                    )
+                  : _buildFallbackLogo(store.name),
             ),
           ),
           const SizedBox(width: 10),
@@ -979,7 +1060,6 @@ class _MapScreenState extends State<MapScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    // Opcional: Pequeño ícono si es diamante
                     if (store.planType?.toUpperCase() == 'DIAMANTE')
                       const Icon(Icons.diamond, color: AppColors.primary, size: 10),
                   ],
@@ -987,227 +1067,13 @@ class _MapScreenState extends State<MapScreen> {
                 const SizedBox(height: 2),
                 Text(
                   'Nivel ${store.floorLevel}',
-                  style: const TextStyle(
-                    color: AppColors.textSecondaryMuted,
-                    fontSize: 10,
-                  ),
+                  style: const TextStyle(color: AppColors.textSecondaryMuted, fontSize: 10),
                 ),
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // Columna B — Visor 3D del mapa (InAppWebView + model-viewer)
-  // ══════════════════════════════════════════════════════════════════════════
-
-  /// Callback unificado que se dispara cuando un piso termina de cargar por
-  /// primera vez. Aplica calibración y despacha la ruta si corresponde.
-  void _onFloorMapLoaded(String floor) {
-    debugPrint('[MapScreen] Mapa del piso $floor cargado');
-    _loadedFloors.add(floor);
-
-    final calib = _floorCalibrations[floor];
-    if (calib != null) {
-      _floorKeys[floor]?.currentState?.setMapCalibration(
-        scale: calib['scale']!,
-        ox: calib['ox']!,
-        oy: calib['oy']!,
-        oz: calib['oz']!,
-        rotY: calib['rotY']!,
-      );
-    }
-
-    // Solo actuar si este piso es el que el usuario está viendo ahora.
-    if (floor != _selectedFloor) return;
-
-    // En Flutter Web, startAvatarRoute recarga el HTML y onMapLoaded vuelve a
-    // dispararse. El flag _routeDispatched previene el loop infinito.
-    // Nota: cuando no hay tienda activa NO posicionamos el avatar — debe
-    // permanecer oculto hasta que el usuario seleccione un destino. Mostrarlo
-    // quieto en el kiosko al cargar el mapa se siente como "carga inacabada".
-    if (_selectedStoreForRoute != null && !_routeDispatched) {
-      _runAvatarRouteTo(_selectedStoreForRoute!);
-    }
-  }
-
-  Widget _build3DMapArea() {
-    const floorLabels = {
-      'RG': 'Nivel RG',
-      'PL': 'Nivel PL',
-      'C1': 'Nivel C1',
-      'C2': 'Nivel C2',
-      'C3': 'Nivel C3',
-      'C4': 'Nivel C4',
-    };
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Column(
-        children: [
-          // Etiqueta del piso actual
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              floorLabels[_selectedFloor] ?? '🗺 MAPA',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
-
-          // Visor 3D con caché por piso: IndexedStack mantiene todos los WebViews
-          // instanciados en memoria; cambiar de piso solo alterna el índice visible
-          // sin destruir ni recargar los WebViews ya cargados.
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: IndexedStack(
-                  index: _kAllFloors.indexOf(_selectedFloor),
-                  children: _kAllFloors.map((floor) {
-                    // Lazy: solo creamos el WebView cuando el piso es visitado
-                    // por primera vez. Los placeholders son widgets vacíos y
-                    // baratos; el IndexedStack los mantiene en el árbol de todos
-                    // modos, pero sin overhead de WebView.
-                    if (!_activatedFloors.contains(floor)) {
-                      return const SizedBox.shrink();
-                    }
-                    final modelUrl =
-                        'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${floor.toLowerCase()}.glb';
-                    return MapViewWeb(
-                      key: _floorKeys[floor],
-                      modelUrl: modelUrl,
-                      avatarUrl: _kAvatarModelUrl,
-                      onMapLoaded: () => _onFloorMapLoaded(floor),
-                      onError: () {
-                        debugPrint('[MapScreen] Error cargando mapa de $floor');
-                      },
-                      onPathRendered: (steps) {
-                        // Solo el piso visible debe transicionar el estado;
-                        // pisos lazy en background pueden disparar callbacks
-                        // residuales si llegasen a precargarse.
-                        if (floor != _selectedFloor) return;
-                        _stateManager.notifyPathRendered(stepCount: steps);
-                      },
-                      onAvatarArrived: () {
-                        if (floor != _selectedFloor) return;
-                        // Importante: NO limpiamos la ruta aquí. El loop de
-                        // caminar continúa y el trail permanece visible.
-                        _stateManager.notifyCharacterArrived();
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // Columna C — Selector de pisos
-  // ══════════════════════════════════════════════════════════════════════════
-  Widget _buildFloorSelector() {
-    final floors = ['RG','PL','C1','C2', 'C3', 'C4'];
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 8, top: 0),
-          child: Text(
-            'PISO',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-            ),
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: EdgeInsets.zero,
-            itemCount: floors.length,
-            itemBuilder: (context, index) {
-              final floor = floors[index];
-              final isSelected = _selectedFloor == floor;
-              return GestureDetector(
-                onTap: () {
-                  if (_selectedFloor == floor) return;
-                  setState(() {
-                    _selectedFloor = floor;
-                    _activatedFloors.add(floor);
-                  });
-                  // Si el piso ya estaba cargado, actualizamos el avatar
-                  // directamente sin esperar onMapLoaded.
-                  if (_loadedFloors.contains(floor)) {
-                    final active = _selectedStoreForRoute;
-                    if (active != null) {
-                      // Cambio de piso = vista distinta. Re-emitimos por el
-                      // bus de selección para que el state manager limpie y
-                      // redibuje el trail en el nuevo piso (un único punto
-                      // de control para clear+render).
-                      _selectionService.select(active);
-                    } else {
-                      _stateManager.onViewChanged();
-                      // No re-mostramos el avatar al cambiar de piso sin
-                      // tienda activa: queremos que aparezca SOLO cuando hay
-                      // ruta. La vista vuelve a quedar limpia.
-                      _floorKeys[_selectedFloor]?.currentState?.hideAvatar();
-                    }
-                  }
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 46,
-                  height: 46,
-                  margin: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.primary.withAlpha(38)
-                        : AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppColors.primary
-                          : AppColors.transparent,
-                      width: 2,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      floor,
-                      style: TextStyle(
-                        color: isSelected
-                            ? AppColors.primary
-                            : AppColors.textSecondaryMuted,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
     );
   }
 }
