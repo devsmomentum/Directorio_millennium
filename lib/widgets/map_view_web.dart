@@ -81,7 +81,7 @@ class MapViewWebState extends State<MapViewWeb> {
         .join();
   }
 
-  String get _backgroundColorCss => '#ffffff';
+  String get _backgroundColorCss => '#EBEBEB';
 
   // ══════════════════════════════════════════════════════════════════════════
   // HTML inyectado con three.js y lógica de avatar
@@ -2703,7 +2703,7 @@ class MapViewWebState extends State<MapViewWeb> {
           initialSettings: InAppWebViewSettings(
             // Rendimiento y compatibilidad
             hardwareAcceleration: true,
-            useHybridComposition: true,
+            useHybridComposition: false, // false = Virtual Display: Flutter recibe toques antes que el WebView nativo
             transparentBackground: false, // Fix para WebGL en WebViews viejos
 
             // Permisos necesarios para scripts WebGL/three.js

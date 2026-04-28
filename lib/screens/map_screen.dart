@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -536,81 +537,101 @@ class _MapScreenState extends State<MapScreen> {
   // ============================================================================
   // BUILD PRINCIPAL 
   // ============================================================================
-  @override
+@override
   Widget build(BuildContext context) {
+    debugPrint('[MapScreen][BUILD] _isSearchVisible=$_isSearchVisible _isLoading=$_isLoading allStores=${_allStores.length} filtered=${_filteredStores.length}');
     return Scaffold(
       backgroundColor: AppColors.background,
       body: ScreenAdBanners(
         showTop: false,
         showBottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AnimatedSize(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              child: !_isSearchVisible
-                  ? const SizedBox.shrink()
-                  : Column(
-                      children: [
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: SizedBox(
-                            height: 44,
-                            child: TextField(
-                              controller: _searchController,
-                              onChanged: (_) => _filterStores(),
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 14,
-                              ),
-                              decoration: InputDecoration(
-                                hintText: 'Busca tienda, categoría, nicho...',
-                                hintStyle: const TextStyle(color: AppColors.textHint),
-                                prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
-                                filled: true,
-                                fillColor: AppColors.surfaceLight,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide.none,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildCategoryRow(), 
-                      ],
-                    ),
+        child: Padding(
+          padding: const EdgeInsets.all(4.0),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: AppColors.background,
             ),
-
-            _buildPremiumLogosAndSearchRow(),
-
-            Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
               child: Stack(
                 children: [
-                  Positioned.fill(
-                    child: _build3DMapArea(),
-                  ),
-                  // Overlay: Selector de pisos (Flotante e independiente)
+                  // 1. Mapa 3D ocupa todo el espacio
+                  Positioned.fill(child: _build3DMapArea()),
+
+                  // 2. Overlay: lupa + buscador + categorías + logos — sobre el mapa.
+                  // • PointerInterceptor: en Flutter Web coloca un div HTML encima del
+                  //   iframe para capturar clics antes de que el browser los entregue al iframe.
+                  // • Listener(opaque): en Android reclama el hit-test antes de que
+                  //   AndroidViewSurface (InAppWebView) lo intercepte.
+                  // Sus hijos (GestureDetector, TextField, etc.) reciben eventos normalmente.
                   Positioned(
-                    right: 8,    // Margen derecho
-                    bottom: 16,  // Pegado a la parte inferior
-                    width: 32,   // Ancho exacto igual al de los botones
-                    // Quitamos 'top' y 'height' para que ocupe solo lo necesario
-                    child: _buildFloorSelector(),
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: PointerInterceptor(
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildPremiumLogosAndSearchRow(),
+                            _buildSearchPanel(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 3. Selector de pisos flotante
+                  Positioned(
+                    right: 8,
+                    bottom: 16,
+                    width: 32,
+                    child: PointerInterceptor(
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        child: _buildFloorSelector(),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
+  Widget _buildSearchPanel() {
+    debugPrint('[MapScreen][PANEL] rebuild — visible=$_isSearchVisible');
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: _isSearchVisible ? _buildSearchPanelContent() : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildSearchPanelContent() {
+    debugPrint('[MapScreen][PANEL] MOSTRANDO contenido — filteredStores=${_filteredStores.length}');
+    return Container(
+      padding: const EdgeInsets.only(bottom: 8),
+      color: Colors.transparent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Categorías
+          _buildCategoryRow(),
+          const SizedBox(height: 4),
+          // Logos de TODAS las tiendas (incluye premium) ordenadas por plan
+          _buildAllStoresLogosRow(),
+        ],
+      ),
+    );
+  }
+  
   Widget _buildFallbackLogo(String storeName) {
     // Tomamos hasta las primeras 2 letras del nombre
     String initials = storeName.trim().isNotEmpty
@@ -635,105 +656,142 @@ class _MapScreenState extends State<MapScreen> {
   // ============================================================================
   // WIDGETS AUXILIARES
   // ============================================================================
-
 Widget _buildPremiumLogosAndSearchRow() {
-    // Definimos si el usuario está "interactuando" con el buscador o los filtros
-    final bool isSearching = _searchController.text.trim().isNotEmpty || _selectedCategory != 'Todas';
+    final premiumStores = _allStores.where((store) {
+      return store.planType != null && store.planType!.trim().isNotEmpty;
+    }).toList()
+      ..sort((a, b) => _getPlanPriority(a.planType).compareTo(_getPlanPriority(b.planType)));
 
-    // Si está interactuando, mostramos todas las coincidencias filtradas. 
-    // Si no, mostramos únicamente los logos de tiendas con planes.
-    final storesToShow = isSearching
-        ? _filteredStores
-        : _filteredStores.where((store) {
-            return store.planType != null && store.planType!.trim().isNotEmpty;
-          }).toList();
+    debugPrint('[MapScreen][TOPBAR] rebuild — visible=$_isSearchVisible premium=${premiumStores.length}');
 
     return Container(
       height: 65,
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
       child: Row(
         children: [
-          Container(
-            margin: const EdgeInsets.only(left: 4, right: 8),
-            decoration: BoxDecoration(
-              color: _isSearchVisible ? AppColors.primary.withAlpha(40) : AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: IconButton(
-              icon: Icon(
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              final next = !_isSearchVisible;
+              debugPrint('[MapScreen][LUPA] TAP recibido — cambiando a visible=$next');
+              setState(() {
+                _isSearchVisible = next;
+                if (!next) {
+                  _searchController.clear();
+                  _selectedCategory = 'Todas';
+                  _filterStores();
+                }
+              });
+              debugPrint('[MapScreen][LUPA] setState hecho — _isSearchVisible=$_isSearchVisible');
+            },
+            child: Container(
+              width: 44,
+              height: 44,
+              margin: const EdgeInsets.only(left: 4, right: 8),
+              decoration: BoxDecoration(
+                // Sin boxShadow: evita conflicto de compositing con InAppWebView
+                color: _isSearchVisible ? AppColors.secondary : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
                 _isSearchVisible ? Icons.close_rounded : Icons.search_rounded,
-                color: AppColors.primary,
+                color: _isSearchVisible ? Colors.white : AppColors.primary,
                 size: 22,
               ),
-              onPressed: () {
-                setState(() {
-                  _isSearchVisible = !_isSearchVisible;
-                  // Si se oculta el buscador, limpiamos la búsqueda para regresar al estado inactivo
-                  if (!_isSearchVisible) {
-                    _searchController.clear();
-                    _selectedCategory = 'Todas';
-                    _filterStores();
-                  }
-                });
-              },
             ),
           ),
-          
+          // Cuando la búsqueda está abierta: barra de texto.
+          // Cuando está cerrada: logos de tiendas con plan.
           Expanded(
-            child: storesToShow.isEmpty || _isLoading
-                ? const SizedBox.shrink()
-                : ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: storesToShow.length,
-                    itemBuilder: (context, index) {
-                      final store = storesToShow[index];
-                      Color borderColor = Colors.white10;
-                      if (store.planType?.toUpperCase() == 'DIAMANTE') {
-                        borderColor = AppColors.primary.withAlpha(150);
-                      } else if (store.planType?.toUpperCase() == 'ORO') {
-                        borderColor = Colors.amber.withAlpha(150);
-                      }
-
-                      return GestureDetector(
-                        onTap: () => _onStoreTapped(store),
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          margin: const EdgeInsets.only(right: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: borderColor, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: borderColor.withOpacity(0.3),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              )
-                            ]
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            // NUEVO: Agregamos !store.logoUrl.contains('dummyimage.com')
-                            child: store.logoUrl.trim().isNotEmpty && 
-                                   store.logoUrl.startsWith('http') &&
-                                   !store.logoUrl.contains('dummyimage.com')
-                                ? Image.network(
-                                    store.logoUrl,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => _buildFallbackLogo(store.name),
-                                  )
-                                : _buildFallbackLogo(store.name),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+            child: _isSearchVisible
+                ? TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    onChanged: (_) => _filterStores(),
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Busca tienda, categoría...',
+                      hintStyle: const TextStyle(color: AppColors.textHint),
+                      prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  )
+                : (premiumStores.isEmpty || _isLoading
+                    ? const SizedBox.shrink()
+                    : ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: premiumStores.length,
+                        itemBuilder: (context, index) => _buildStoreLogo(premiumStores[index]),
+                      )),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildAllStoresLogosRow() {
+    if (_filteredStores.isEmpty || _isLoading) return const SizedBox.shrink();
+
+    // Mismo alto y padding vertical que la fila de logos premium del top bar
+    return SizedBox(
+      height: 65,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        itemCount: _filteredStores.length,
+        itemBuilder: (context, index) => _buildStoreLogo(_filteredStores[index]),
+      ),
+    );
+  }
+
+  Widget _buildStoreLogo(Store store) {
+    Color borderColor = Colors.white10;
+    if (store.planType?.toUpperCase() == 'DIAMANTE') {
+      borderColor = AppColors.primary.withAlpha(150);
+    } else if (store.planType?.toUpperCase() == 'ORO') {
+      borderColor = Colors.amber.withAlpha(150);
+    }
+
+    return GestureDetector(
+      onTap: () => _onStoreTapped(store),
+      child: Container(
+        width: 48,
+        height: 48,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: store.logoUrl.trim().isNotEmpty &&
+                  store.logoUrl.startsWith('http') &&
+                  !store.logoUrl.contains('dummyimage.com')
+              ? Image.network(
+                  store.logoUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => _buildFallbackLogo(store.name),
+                )
+              : _buildFallbackLogo(store.name),
+        ),
+      ),
+    );
+  }
+  
   Widget _buildCategoryRow() {
     return SizedBox(
       height: 48,
@@ -845,73 +903,32 @@ Widget _buildPremiumLogosAndSearchRow() {
       ),
     );
   }
-
-  Widget _build3DMapArea() {
-    const floorLabels = {
-      'RG': 'Nivel RG',
-      'PL': 'Nivel PL',
-      'C1': 'Nivel C1',
-      'C2': 'Nivel C2',
-      'C3': 'Nivel C3',
-      'C4': 'Nivel C4',
-    };
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(bottom: 4), 
-            child: Text(
-              floorLabels[_selectedFloor] ?? '🗺 MAPA',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: IndexedStack(
-                  index: _kAllFloors.indexOf(_selectedFloor),
-                  children: _kAllFloors.map((floor) {
-                    if (!_activatedFloors.contains(floor)) return const SizedBox.shrink();
-                    final modelUrl = 'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${floor.toLowerCase()}.glb';
-                    return MapViewWeb(
-                      key: _floorKeys[floor],
-                      modelUrl: modelUrl,
-                      avatarUrl: _kAvatarModelUrl,
-                      onMapLoaded: () => _onFloorMapLoaded(floor),
-                      onError: () => debugPrint('[MapScreen] Error cargando mapa de $floor'),
-                      onPathRendered: (steps) {
-                        if (floor != _selectedFloor) return;
-                        _stateManager.notifyPathRendered(stepCount: steps);
-                      },
-                      onAvatarArrived: () {
-                        if (floor != _selectedFloor) return;
-                        _stateManager.notifyCharacterArrived();
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+Widget _build3DMapArea() {
+    // Retornamos directamente el IndexedStack, sin Textos ni contenedores decorativos
+    return IndexedStack(
+      index: _kAllFloors.indexOf(_selectedFloor),
+      children: _kAllFloors.map((floor) {
+        if (!_activatedFloors.contains(floor)) return const SizedBox.shrink();
+        final modelUrl = 'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/plano_${floor.toLowerCase()}.glb';
+        return MapViewWeb(
+          key: _floorKeys[floor],
+          modelUrl: modelUrl,
+          avatarUrl: _kAvatarModelUrl,
+          onMapLoaded: () => _onFloorMapLoaded(floor),
+          onError: () => debugPrint('[MapScreen] Error cargando mapa de $floor'),
+          onPathRendered: (steps) {
+            if (floor != _selectedFloor) return;
+            _stateManager.notifyPathRendered(stepCount: steps);
+          },
+          onAvatarArrived: () {
+            if (floor != _selectedFloor) return;
+            _stateManager.notifyCharacterArrived();
+          },
+        );
+      }).toList(),
     );
   }
+
 Widget _buildFloorSelector() {
     final floors = ['RG','PL','C1','C2', 'C3', 'C4'];
     return Column(
