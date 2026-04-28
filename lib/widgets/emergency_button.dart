@@ -13,11 +13,21 @@ class EmergencyButton extends StatelessWidget {
   Future<void> _triggerEmergency() async {
     final prefs = await SharedPreferences.getInstance();
     final myKioskId = prefs.getString('kiosk_id');
-    if (myKioskId != null && myKioskId.isNotEmpty) {
-      await Supabase.instance.client
-          .from('kiosks')
-          .update({'is_emergency_active': true})
-          .eq('id', myKioskId);
+    if (myKioskId == null || myKioskId.isEmpty) return;
+
+    await Supabase.instance.client
+        .from('kiosks')
+        .update({'is_emergency_active': true})
+        .eq('id', myKioskId);
+
+    try {
+      await Supabase.instance.client.functions.invoke(
+        'send-emergency-whatsapp',
+        body: {'kiosk_id': myKioskId},
+      );
+    } catch (e) {
+      // El fallo en WhatsApp no debe bloquear la alerta local ya activada.
+      debugPrint('[EmergencyButton] Error al enviar WhatsApp: $e');
     }
   }
 
