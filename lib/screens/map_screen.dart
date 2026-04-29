@@ -861,32 +861,72 @@ Widget _buildPremiumLogosAndSearchRow() {
           // Cuando la búsqueda está abierta: barra de texto.
           // Cuando está cerrada: logos de tiendas con plan.
           Expanded(
-            child: _isSearchVisible
-                ? TextField(
-                    controller: _searchController,
-                    autofocus: true,
-                    onChanged: (_) => _filterStores(),
-                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Busca tienda, categoría...',
-                      hintStyle: const TextStyle(color: AppColors.textHint),
-                      prefixIcon: const Icon(Icons.search, color: AppColors.primary, size: 20),
-                      filled: true,
-                      fillColor: AppColors.surfaceLight,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                  )
-                : (premiumStores.isEmpty || _isLoading
-                    ? const SizedBox.shrink()
-                    : ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: premiumStores.length,
-                        itemBuilder: (context, index) => _buildStoreLogo(premiumStores[index]),
-                      )),
+              child: _isSearchVisible
+              ? Container(
+                  // La caja contenedora aporta la misma sombra sutil que las categorías
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: _searchController,
+            autofocus: true,
+            onChanged: (_) => _filterStores(),
+            style: TextStyle(
+              color: Colors.grey.shade800, // Un gris oscuro es más suave a la vista que negro puro
+              fontSize: 14,
+              fontWeight: FontWeight.w500, // SemiBold ligero para mejor legibilidad
+            ),
+            decoration: InputDecoration(
+              hintText: 'Busca tienda, categoría...',
+              hintStyle: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 14,
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded, // search_rounded se ve más moderno
+                color: AppColors.primary.withOpacity(0.8), // Primario ligeramente suavizado
+                size: 20,
+              ),
+              filled: true,
+              fillColor: Colors.white, // Resalta limpiamente sobre el fondo general
+              
+              // Borde cuando NO está seleccionado (estático)
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Colors.grey.shade200,
+                  width: 1.2,
+                ),
+              ),
+              
+              // Borde cuando el usuario hace tap y está escribiendo (activo)
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.primary.withOpacity(0.5), // Tinte primario elegante
+                  width: 1.2,
+                ),
+              ),
+              
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              isDense: true, // Mantiene el TextField compacto para que no altere tu layout
+            ),
+          ),
+        )
+      : (premiumStores.isEmpty || _isLoading
+          ? const SizedBox.shrink()
+          : ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: premiumStores.length,
+              itemBuilder: (context, index) => _buildStoreLogo(premiumStores[index]),
+            )),
           ),
         ],
       ),
@@ -950,7 +990,7 @@ Widget _buildPremiumLogosAndSearchRow() {
     );
   }
   
-  Widget _buildCategoryRow() {
+Widget _buildCategoryRow() {
     return SizedBox(
       height: 48,
       child: Row(
@@ -971,10 +1011,11 @@ Widget _buildPremiumLogosAndSearchRow() {
               child: Container(
                 color: Colors.transparent,
                 padding: const EdgeInsets.only(left: 16, right: 8),
-                child: const Icon(
+                child: Icon(
                   Icons.arrow_back_ios_new_rounded,
                   size: 18,
-                  color: AppColors.textSecondaryMuted,
+                  // Un gris un poco más definido para que no se pierda en el blanco
+                  color: Colors.grey.shade500, 
                 ),
               ),
             ),
@@ -991,6 +1032,7 @@ Widget _buildPremiumLogosAndSearchRow() {
               itemBuilder: (context, index) {
                 final cat = _categories[index];
                 final isSelected = _selectedCategory == cat['name'];
+                
                 return GestureDetector(
                   onTap: () {
                     AnalyticsService().logEvent(
@@ -1003,27 +1045,50 @@ Widget _buildPremiumLogosAndSearchRow() {
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    curve: Curves.easeOut, // Transición más fluida
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6), // Ajuste vertical sutil para la sombra
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppColors.primary : AppColors.surfaceLight,
+                      // Fondo: Translúcido si está seleccionado, blanco puro si no
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(30),
+                      // Borde: Usa el color primario si está seleccionado, gris muy suave si no
+                      border: Border.all(
+                        color: isSelected 
+                            ? AppColors.primary.withOpacity(0.5) 
+                            : Colors.grey.shade200,
+                        width: 1.2,
+                      ),
+                      // Sombra: Muy sutil para despegar el botón del fondo blanco
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           cat['icon'] as IconData,
-                          color: isSelected ? AppColors.textPrimary : AppColors.textSecondaryMuted,
-                          size: 18,
+                          color: isSelected 
+                              ? AppColors.primary 
+                              : Colors.grey.shade600,
+                          size: 16, // Ligeramente más pequeño para verse más refinado
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Text(
                           cat['name'] as String,
                           style: TextStyle(
-                            color: isSelected ? AppColors.textPrimary : AppColors.textSecondaryMuted,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                            color: isSelected 
+                                ? AppColors.primary 
+                                : Colors.grey.shade700,
+                            // w600 (SemiBold) es más elegante que 'bold' puro
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            fontSize: 13,
+                            letterSpacing: 0.2, // El espaciado de letras da un toque premium
                           ),
                         ),
                       ],
@@ -1049,10 +1114,10 @@ Widget _buildPremiumLogosAndSearchRow() {
               child: Container(
                 color: Colors.transparent,
                 padding: const EdgeInsets.only(left: 8, right: 16),
-                child: const Icon(
+                child: Icon(
                   Icons.arrow_forward_ios_rounded,
                   size: 18,
-                  color: AppColors.textSecondaryMuted,
+                  color: Colors.grey.shade500,
                 ),
               ),
             ),
@@ -1061,6 +1126,7 @@ Widget _buildPremiumLogosAndSearchRow() {
       ),
     );
   }
+
 Widget _build3DMapArea() {
     // Retornamos directamente el IndexedStack, sin Textos ni contenedores decorativos
     return IndexedStack(
