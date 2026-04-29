@@ -69,6 +69,10 @@ class MapScreenState extends State<MapScreen> {
   // NUEVO ESTADO DE UI
   bool _isSearchVisible = false;
 
+  // Cuando resetToKioskView se llama antes de que _loadData entregue el piso
+  // del kiosco, guardamos la intención para ejecutarla cuando llegue el dato.
+  bool _pendingKioskFloorSwitch = false;
+
   List<Store> _allStores = [];
   List<Store> _filteredStores = [];
   String _selectedCategory = 'Todas';
@@ -145,6 +149,16 @@ class MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
+  void closeSearch() {
+    if (!_isSearchVisible || !mounted) return;
+    setState(() {
+      _isSearchVisible = false;
+      _searchController.clear();
+      _selectedCategory = 'Todas';
+      _filterStores();
+    });
+  }
+
   Future<void> resetToKioskView() async {
     if (!mounted) return;
     final kioskFloor = _normalizeFloorCode(_kioskFloorLevel);
@@ -152,14 +166,25 @@ class MapScreenState extends State<MapScreen> {
 
     if (mounted) {
       setState(() {
+        _isSearchVisible = false;
+        _searchController.clear();
+        _selectedCategory = 'Todas';
         _selectedStoreForRoute = null;
         _routeDispatched = false;
         _pendingCenterOnKioskFloor = true;
-        if (targetFloor.isNotEmpty && targetFloor != _selectedFloor) {
+        if (kioskFloor.isEmpty) {
+          // Piso del kiosco aún no disponible (carrera con _loadData).
+          // Cuando llegue el dato, _prioritizeKioskFloorPreload lo aplica.
+          _pendingKioskFloorSwitch = true;
+        } else if (targetFloor != _selectedFloor) {
           _selectedFloor = targetFloor;
           _activatedFloors.add(targetFloor);
         }
       });
+      _filterStores();
+      // Si el piso objetivo ya estaba activo y falló (error congelado),
+      // didUpdateWidget no se dispara → forzamos el retry manualmente.
+      _floorKeys[targetFloor]?.currentState?.retryLoad();
     }
 
     _stateManager.onViewChanged();
@@ -404,6 +429,24 @@ class MapScreenState extends State<MapScreen> {
   void _prioritizeKioskFloorPreload() {
     final kioskFloor = _normalizeFloorCode(_kioskFloorLevel);
     if (kioskFloor.isEmpty) return;
+
+    // Si resetToKioskView se llamó antes de que llegara el piso del kiosco,
+    // ahora que lo sabemos: cambiamos el piso visible.
+    if (_pendingKioskFloorSwitch && mounted && kioskFloor != _selectedFloor) {
+      _pendingKioskFloorSwitch = false;
+      setState(() {
+        _selectedFloor = kioskFloor;
+        _activatedFloors.add(kioskFloor);
+        _pendingCenterOnKioskFloor = true;
+      });
+      // Dar un frame para que el widget esté en el árbol antes de retryLoad.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _floorKeys[kioskFloor]?.currentState?.retryLoad();
+      });
+    } else {
+      _pendingKioskFloorSwitch = false;
+    }
+
     if (!_preloadStarted) {
       _startBackgroundMapPreload(priorityFloor: kioskFloor);
       return;
@@ -661,7 +704,20 @@ class MapScreenState extends State<MapScreen> {
                   // 1. Mapa 3D ocupa todo el espacio
                   Positioned.fill(child: _build3DMapArea()),
 
-                  // 2. Overlay: lupa + buscador + categorías + logos — sobre el mapa.
+                  // 2. Overlay transparente: cierra la búsqueda al tocar fuera del panel.
+                  //    Solo aparece cuando _isSearchVisible es true.
+                  if (_isSearchVisible)
+                    Positioned.fill(
+                      child: PointerInterceptor(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: closeSearch,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
+
+                  // 3. Overlay: lupa + buscador + categorías + logos — sobre el mapa.
                   // • PointerInterceptor: en Flutter Web coloca un div HTML encima del
                   //   iframe para capturar clics antes de que el browser los entregue al iframe.
                   // • Listener(opaque): en Android reclama el hit-test antes de que
@@ -685,7 +741,7 @@ class MapScreenState extends State<MapScreen> {
                     ),
                   ),
 
-                  // 3. Selector de pisos flotante
+                  // 4. Selector de pisos flotante
                   Positioned(
                     right: 8,
                     bottom: 16,
@@ -1018,7 +1074,13 @@ Widget _build3DMapArea() {
           avatarUrl: _kAvatarModelUrl,
           isActive: floor == _selectedFloor,
           onMapLoaded: () => _onFloorMapLoaded(floor),
-          onError: () => debugPrint('[MapScreen] Error cargando mapa de $floor'),
+          onError: () {
+            debugPrint('[MapScreen] Error cargando mapa de $floor — reintentando en 4 s');
+            Future.delayed(const Duration(seconds: 4), () {
+              if (!mounted || _loadedFloors.contains(floor)) return;
+              _floorKeys[floor]?.currentState?.retryLoad();
+            });
+          },
           onPathRendered: (steps) {
             if (floor != _selectedFloor) return;
             _stateManager.notifyPathRendered(stepCount: steps);

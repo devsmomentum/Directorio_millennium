@@ -161,6 +161,9 @@ class MainLayoutState extends State<MainLayout> {
       }
     }
 
+    // Cerrar la barra de búsqueda al cambiar de pestaña
+    _mapKey.currentState?.closeSearch();
+
     // Comportamiento normal de la navegación
     if (index == 0) {
       _exitToHome();

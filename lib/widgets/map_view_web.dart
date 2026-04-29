@@ -80,7 +80,9 @@ class MapViewWebState extends State<MapViewWeb> {
   final MapViewPostBridge _postBridge = MapViewPostBridge();
   bool _postBridgeReady = false;
 
-  static const Duration _kMapLoadTimeout = Duration(seconds: 12);
+  // 90 s: tiempo suficiente para primera descarga en frío del .glb + three.js CDN.
+  // En arranques subsiguientes el caché del WebView sirve todo en <2 s.
+  static const Duration _kMapLoadTimeout = Duration(seconds: 90);
 
   static String _generateInstanceId() {
     final r = Random.secure();
@@ -2446,6 +2448,19 @@ class MapViewWebState extends State<MapViewWeb> {
     _loadTimedOut = false;
   }
 
+  /// Reintenta la carga del mapa. Solo actúa si hay un error previo.
+  void retryLoad() {
+    if (!mounted || !_hasError) return;
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+      _loadTimedOut = false;
+    });
+    _startLoadTimeout();
+    // Usa loadData en lugar de reload() para ser explícito con URLs data:
+    _reloadHtmlIfPossible();
+  }
+
   void _deferLoadError(String reason) {
     debugPrint('[MapViewWeb] Error detectado: $reason');
     if (_loadTimedOut || !_isLoading) return;
@@ -2462,7 +2477,10 @@ class MapViewWebState extends State<MapViewWeb> {
 
     if (oldWidget.isActive != widget.isActive) {
       if (widget.isActive) {
-        if (_isLoading && !_hasError) {
+        if (_hasError) {
+          // Piso con error ahora visible → reintentar automáticamente
+          retryLoad();
+        } else if (_isLoading) {
           _startLoadTimeout();
         }
       } else {
