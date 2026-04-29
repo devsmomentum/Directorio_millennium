@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'main_layout.dart';
 import '../widgets/emergency_button.dart';
 import '../widgets/start_transition_overlay.dart';
 import '../services/ad_cache_manager.dart';
@@ -13,7 +12,9 @@ const String _kLogoUrl =
     'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_millennium.png';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.onEnterDirectory});
+
+  final VoidCallback onEnterDirectory;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -261,25 +262,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isTransitioning = true);
   }
 
-  Future<void> _onTransitionComplete() async {
+  void _onTransitionComplete() {
     if (!mounted) return;
-    // Usamos `push` (no `pushReplacement`) para que HomeScreen siga en el
-    // stack: el botón "Inicio" del bottom-nav de MainLayout hace `pop` y
-    // necesita volver acá. Con pushReplacement el stack quedaba vacío y la
-    // app mostraba pantalla negra.
-    await Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => const MainLayout(),
-        transitionsBuilder: (_, animation, __, child) =>
-            FadeTransition(opacity: animation, child: child),
-      ),
-    );
-    // Al regresar, restauramos el estado para que el logo estático vuelva
-    // y el overlay deje de pintarse.
-    if (mounted) {
-      setState(() => _isTransitioning = false);
-    }
+    widget.onEnterDirectory();
+    setState(() => _isTransitioning = false);
   }
 
   Widget _buildSmallWifiInfo() {

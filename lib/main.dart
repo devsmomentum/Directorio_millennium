@@ -8,7 +8,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
 
-import 'screens/home_screen.dart';
+import 'screens/app_shell.dart';
 import 'theme_manager.dart';
 import 'services/telemetry_service.dart';
 import 'services/kiosk_bootstrap_service.dart';
@@ -118,7 +118,7 @@ class MillenniumKioskApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const HomeScreen(),
+      home: const AppShell(),
     );
   }
 }

@@ -10,6 +10,7 @@ class MapViewPostBridge {
   void register({
     required String instanceId,
     required MapViewMessageHandler onReady,
+    MapViewMessageHandler? onLoaded,
   }) {}
 
   /// Envía un comando JSON a la iframe ya capturada.

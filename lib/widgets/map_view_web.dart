@@ -44,6 +44,10 @@ class MapViewWeb extends StatefulWidget {
   /// orquestador de estado (MapStateManager) transicionar a CharacterWalking.
   final void Function(int stepCount)? onPathRendered;
 
+  /// Indica si este mapa está visible/activo en pantalla.
+  /// En web evitamos timeouts agresivos cuando está en background.
+  final bool isActive;
+
   const MapViewWeb({
     super.key,
     required this.modelUrl,
@@ -52,6 +56,7 @@ class MapViewWeb extends StatefulWidget {
     this.onError,
     this.onAvatarArrived,
     this.onPathRendered,
+    this.isActive = true,
   });
 
   @override
@@ -63,6 +68,8 @@ class MapViewWebState extends State<MapViewWeb> {
   bool _isLoading = true;
   bool _hasError = false;
   Timer? _webLoadPoller;
+  Timer? _loadTimeoutTimer;
+  bool _loadTimedOut = false;
   String _webCommandBootstrap = '';
 
   // ── Canal postMessage (Flutter Web → iframe). Permite empujar comandos
@@ -72,6 +79,8 @@ class MapViewWebState extends State<MapViewWeb> {
   final String _instanceId = _generateInstanceId();
   final MapViewPostBridge _postBridge = MapViewPostBridge();
   bool _postBridgeReady = false;
+
+  static const Duration _kMapLoadTimeout = Duration(seconds: 12);
 
   static String _generateInstanceId() {
     final r = Random.secure();
@@ -2321,6 +2330,13 @@ class MapViewWebState extends State<MapViewWeb> {
               controls.style.opacity = '1';
               controls.style.pointerEvents = 'auto';
             }
+            try {
+              const loaded = JSON.stringify({
+                kind: 'mapview-loaded',
+                instanceId: window.__milemiumInstanceId || '',
+              });
+              window.parent && window.parent.postMessage(loaded, '*');
+            } catch (_) { /* iframe en sandbox/sin parent: ignorar */ }
             notifyFlutter('onMapLoaded', 'ok');
           });
         });
@@ -2409,6 +2425,33 @@ class MapViewWebState extends State<MapViewWeb> {
     );
   }
 
+  void _startLoadTimeout() {
+    _loadTimedOut = false;
+    _loadTimeoutTimer?.cancel();
+    _loadTimeoutTimer = Timer(_kMapLoadTimeout, () {
+      if (!mounted || !_isLoading) return;
+      _loadTimedOut = true;
+      debugPrint('[MapViewWeb] Timeout de carga alcanzado');
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+      });
+      widget.onError?.call();
+    });
+  }
+
+  void _stopLoadTimeout() {
+    _loadTimeoutTimer?.cancel();
+    _loadTimeoutTimer = null;
+    _loadTimedOut = false;
+  }
+
+  void _deferLoadError(String reason) {
+    debugPrint('[MapViewWeb] Error detectado: $reason');
+    if (_loadTimedOut || !_isLoading) return;
+    // No mostrar error inmediato; dejamos que el timeout decida.
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // Ciclo de vida del widget
   // ══════════════════════════════════════════════════════════════════════════
@@ -2416,6 +2459,16 @@ class MapViewWebState extends State<MapViewWeb> {
   @override
   void didUpdateWidget(covariant MapViewWeb oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.isActive != widget.isActive) {
+      if (widget.isActive) {
+        if (_isLoading && !_hasError) {
+          _startLoadTimeout();
+        }
+      } else {
+        _stopLoadTimeout();
+      }
+    }
 
     // Si cambió el .glb del mapa (p.ej. el usuario cambió de piso), recargamos
     // el WebView. Así mantenemos la misma instancia —y por tanto el
@@ -2430,6 +2483,11 @@ class MapViewWebState extends State<MapViewWeb> {
           _isLoading = true;
           _hasError = false;
         });
+        if (widget.isActive) {
+          _startLoadTimeout();
+        } else {
+          _stopLoadTimeout();
+        }
       }
       // Reinyecta el HTML (el getter ya resuelve el nuevo widget.modelUrl).
       _webViewController!.loadData(
@@ -2451,12 +2509,25 @@ class MapViewWebState extends State<MapViewWeb> {
   @override
   void initState() {
     super.initState();
+    if (widget.isActive) {
+      _startLoadTimeout();
+    }
     if (kIsWeb) {
       _postBridge.register(
         instanceId: _instanceId,
         onReady: () {
           _postBridgeReady = true;
           debugPrint('[MapViewWeb][PostBridge] iframe lista ($_instanceId)');
+        },
+        onLoaded: () {
+          if (!mounted || !_isLoading) return;
+          debugPrint('[MapViewWeb][PostBridge] mapa listo ($_instanceId)');
+          _stopLoadTimeout();
+          setState(() {
+            _isLoading = false;
+            _hasError = false;
+          });
+          widget.onMapLoaded?.call();
         },
       );
     }
@@ -2465,6 +2536,7 @@ class MapViewWebState extends State<MapViewWeb> {
   @override
   void dispose() {
     _webLoadPoller?.cancel();
+    _loadTimeoutTimer?.cancel();
     _webViewController = null;
     if (kIsWeb) {
       _postBridge.dispose();
@@ -2478,27 +2550,13 @@ class MapViewWebState extends State<MapViewWeb> {
 
   /// En web, addJavaScriptHandler, onConsoleMessage, onLoadStop, y
   /// evaluateJavascript NO están implementados en flutter_inappwebview.
-  /// Usamos un timeout prudente: el HTML se carga casi inmediatamente y
-  /// three.js continúa la descarga/render del .glb en segundo plano.
-  /// Removemos el overlay de Flutter para revelar el visor.
+  /// Usamos postMessage desde el HTML para saber cuándo el modelo terminó
+  /// de cargar. El overlay de Flutter permanece hasta esa señal o hasta
+  /// que el timeout de carga general marque error.
   void _startWebLoadFallback() {
     if (!kIsWeb) return;
 
-    debugPrint('[MapViewWeb][Web] Iniciando fallback de carga por timeout');
-
-    // Timeout corto: revelar el visor después de 3 segundos.
-    // three.js continuará el render aunque el modelo siga cargando.
-    _webLoadPoller?.cancel();
-    _webLoadPoller = Timer(const Duration(seconds: 3), () {
-      if (mounted && _isLoading) {
-        debugPrint('[MapViewWeb][Web] Timeout alcanzado → revelando visor');
-        setState(() {
-          _isLoading = false;
-          _hasError = false;
-        });
-        widget.onMapLoaded?.call();
-      }
-    });
+    debugPrint('[MapViewWeb][Web] Fallback activo: esperando postMessage de carga');
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2771,6 +2829,7 @@ class MapViewWebState extends State<MapViewWeb> {
                 callback: (args) {
                   debugPrint('[MapViewWeb][Web→Flutter] Mapa cargado: $args');
                   if (mounted) {
+                    _stopLoadTimeout();
                     setState(() {
                       _isLoading = false;
                       _hasError = false;
@@ -2785,13 +2844,7 @@ class MapViewWebState extends State<MapViewWeb> {
                 handlerName: 'onMapError',
                 callback: (args) {
                   debugPrint('[MapViewWeb][Web→Flutter] Error: $args');
-                  if (mounted) {
-                    setState(() {
-                      _isLoading = false;
-                      _hasError = true;
-                    });
-                    widget.onError?.call();
-                  }
+                  _deferLoadError('onMapError');
                   return null;
                 },
               );
@@ -2854,6 +2907,7 @@ class MapViewWebState extends State<MapViewWeb> {
             // Detectar mensaje de carga como respaldo
             if (consoleMessage.message.contains('cargado correctamente')) {
               if (mounted && _isLoading) {
+                _stopLoadTimeout();
                 setState(() {
                   _isLoading = false;
                   _hasError = false;
@@ -2883,13 +2937,7 @@ class MapViewWebState extends State<MapViewWeb> {
             debugPrint('[MapViewWeb][ERROR] ${error.description}');
             // Solo marcar error si es la carga principal, no recursos secundarios
             if (request.url.toString().contains('localhost')) {
-              if (mounted) {
-                setState(() {
-                  _isLoading = false;
-                  _hasError = true;
-                });
-                widget.onError?.call();
-              }
+              _deferLoadError('onReceivedError');
             }
           },
         ),
@@ -2972,6 +3020,7 @@ class MapViewWebState extends State<MapViewWeb> {
                             _isLoading = true;
                             _hasError = false;
                           });
+                          _startLoadTimeout();
                           _webViewController?.reload();
                         }
                       },

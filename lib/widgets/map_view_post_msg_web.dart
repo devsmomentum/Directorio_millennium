@@ -12,15 +12,18 @@ typedef MapViewMessageHandler = void Function();
 class MapViewPostBridge {
   String? _instanceId;
   MapViewMessageHandler? _onReady;
+  MapViewMessageHandler? _onLoaded;
   web.Window? _target;
   JSFunction? _listenerRef;
 
   void register({
     required String instanceId,
     required MapViewMessageHandler onReady,
+    MapViewMessageHandler? onLoaded,
   }) {
     _instanceId = instanceId;
     _onReady = onReady;
+    _onLoaded = onLoaded;
     final listener = _handleMessage.toJS;
     _listenerRef = listener;
     web.window.addEventListener('message', listener);
@@ -45,6 +48,7 @@ class MapViewPostBridge {
     _listenerRef = null;
     _target = null;
     _onReady = null;
+    _onLoaded = null;
   }
 
   void _handleMessage(web.MessageEvent ev) {
@@ -58,13 +62,17 @@ class MapViewPostBridge {
       }
       final decoded = jsonDecode(str);
       if (decoded is! Map) return;
-      if (decoded['kind'] != 'mapview-ready') return;
+      final kind = decoded['kind'];
       if (decoded['instanceId'] != _instanceId) return;
-      final src = ev.source;
-      if (src == null) return;
-      // event.source es el WindowProxy de la iframe.
-      _target = src as web.Window;
-      _onReady?.call();
+      if (kind == 'mapview-ready') {
+        final src = ev.source;
+        if (src == null) return;
+        // event.source es el WindowProxy de la iframe.
+        _target = src as web.Window;
+        _onReady?.call();
+      } else if (kind == 'mapview-loaded') {
+        _onLoaded?.call();
+      }
     } catch (_) {
       // Ignorar mensajes con formato inesperado.
     }

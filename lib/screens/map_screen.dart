@@ -37,10 +37,10 @@ class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
   @override
-  State<MapScreen> createState() => _MapScreenState();
+  State<MapScreen> createState() => MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class MapScreenState extends State<MapScreen> {
   // Pisos disponibles (orden = índice del IndexedStack)
   static const List<String> _kAllFloors = ['RG', 'PL', 'C1', 'C2', 'C3', 'C4'];
 
@@ -49,6 +49,11 @@ class _MapScreenState extends State<MapScreen> {
 
   // Pisos que ya tienen su MapViewWeb instanciado en el árbol (lazy)
   final Set<String> _activatedFloors = {};
+
+  // Cola de precarga de mapas (background)
+  final List<String> _preloadQueue = [];
+  bool _preloadRunning = false;
+  bool _preloadStarted = false;
 
   // Pisos cuyo onMapLoaded ya disparó (calibración aplicada)
   final Set<String> _loadedFloors = {};
@@ -99,11 +104,17 @@ class _MapScreenState extends State<MapScreen> {
   // Calibración del modelo por piso
   Map<String, Map<String, double>> _floorCalibrations = {};
 
+  bool _pendingCenterOnKioskFloor = false;
+
   @override
   void initState() {
     super.initState();
     _floorKeys = {for (final f in _kAllFloors) f: GlobalKey<MapViewWebState>()};
     _activatedFloors.add(_selectedFloor);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startBackgroundMapPreload(priorityFloor: _selectedFloor);
+    });
 
     _selectionService = StoreSelectionService();
     _pathRenderer = PathRendererController();
@@ -132,6 +143,28 @@ class _MapScreenState extends State<MapScreen> {
     _stateManager.dispose();
     _selectionService.dispose();
     super.dispose();
+  }
+
+  Future<void> resetToKioskView() async {
+    if (!mounted) return;
+    final kioskFloor = _normalizeFloorCode(_kioskFloorLevel);
+    final targetFloor = kioskFloor.isNotEmpty ? kioskFloor : _selectedFloor;
+
+    if (mounted) {
+      setState(() {
+        _selectedStoreForRoute = null;
+        _routeDispatched = false;
+        _pendingCenterOnKioskFloor = true;
+        if (targetFloor.isNotEmpty && targetFloor != _selectedFloor) {
+          _selectedFloor = targetFloor;
+          _activatedFloors.add(targetFloor);
+        }
+      });
+    }
+
+    _stateManager.onViewChanged();
+    await _stopRouteOnAllFloors();
+    await _floorKeys[targetFloor]?.currentState?.centerTopView();
   }
 
   void _onKioskChanged() {
@@ -265,6 +298,8 @@ class _MapScreenState extends State<MapScreen> {
         });
       }
 
+      _prioritizeKioskFloorPreload();
+
       _updateUIWithData(catsResponse, stores);
     } catch (e) {
       debugPrint('Error de red: $e');
@@ -313,6 +348,68 @@ class _MapScreenState extends State<MapScreen> {
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _updateCategoryScrollState());
     }
+  }
+
+  String _normalizeFloorCode(String? floor) {
+    final raw = floor?.trim().toUpperCase() ?? '';
+    if (!_kAllFloors.contains(raw)) return '';
+    return raw;
+  }
+
+  void _enqueueFloorPreload(String floor, {bool front = false}) {
+    final code = _normalizeFloorCode(floor);
+    if (code.isEmpty) return;
+    if (_activatedFloors.contains(code)) return;
+    if (_preloadQueue.contains(code)) {
+      if (front) {
+        _preloadQueue.remove(code);
+        _preloadQueue.insert(0, code);
+      }
+      return;
+    }
+    if (front) {
+      _preloadQueue.insert(0, code);
+    } else {
+      _preloadQueue.add(code);
+    }
+  }
+
+  Future<void> _drainPreloadQueue() async {
+    if (_preloadRunning) return;
+    _preloadRunning = true;
+    while (mounted && _preloadQueue.isNotEmpty) {
+      final floor = _preloadQueue.removeAt(0);
+      if (!_activatedFloors.contains(floor)) {
+        setState(() {
+          _activatedFloors.add(floor);
+        });
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+    }
+    _preloadRunning = false;
+  }
+
+  void _startBackgroundMapPreload({String? priorityFloor}) {
+    if (_preloadStarted) return;
+    _preloadStarted = true;
+    if (priorityFloor != null && priorityFloor.isNotEmpty) {
+      _enqueueFloorPreload(priorityFloor, front: true);
+    }
+    for (final floor in _kAllFloors) {
+      _enqueueFloorPreload(floor);
+    }
+    _drainPreloadQueue();
+  }
+
+  void _prioritizeKioskFloorPreload() {
+    final kioskFloor = _normalizeFloorCode(_kioskFloorLevel);
+    if (kioskFloor.isEmpty) return;
+    if (!_preloadStarted) {
+      _startBackgroundMapPreload(priorityFloor: kioskFloor);
+      return;
+    }
+    _enqueueFloorPreload(kioskFloor, front: true);
+    _drainPreloadQueue();
   }
 
   IconData _getIconData(String? iconName) {
@@ -528,6 +625,11 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     if (floor != _selectedFloor) return;
+
+    if (_pendingCenterOnKioskFloor) {
+      _pendingCenterOnKioskFloor = false;
+      _floorKeys[floor]?.currentState?.centerTopView();
+    }
 
     if (_selectedStoreForRoute != null && !_routeDispatched) {
       _runAvatarRouteTo(_selectedStoreForRoute!);
@@ -914,6 +1016,7 @@ Widget _build3DMapArea() {
           key: _floorKeys[floor],
           modelUrl: modelUrl,
           avatarUrl: _kAvatarModelUrl,
+          isActive: floor == _selectedFloor,
           onMapLoaded: () => _onFloorMapLoaded(floor),
           onError: () => debugPrint('[MapScreen] Error cargando mapa de $floor'),
           onPathRendered: (steps) {

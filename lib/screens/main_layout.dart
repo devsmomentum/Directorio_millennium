@@ -18,14 +18,17 @@ import '../services/coupon_service.dart';
 import '../theme/app_theme.dart';
 
 class MainLayout extends StatefulWidget {
-  const MainLayout({super.key});
+  const MainLayout({super.key, required this.onExitToHome});
+
+  final VoidCallback onExitToHome;
 
   @override
-  State<MainLayout> createState() => _MainLayoutState();
+  State<MainLayout> createState() => MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
+class MainLayoutState extends State<MainLayout> {
   int _currentIndex = 1; // Empezamos en Directorio
+  final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
 
   // --- VARIABLES PARA EL EASTER EGG ---
   int _secretTapCount = 0;
@@ -45,33 +48,38 @@ class _MainLayoutState extends State<MainLayout> {
   bool _flashCouponShown = false;
 
   // 1. Aquí se definen las pantallas reales
-  final List<Widget> _screens = [
-    const SizedBox(), // Se usa para volver al Home
-    const MapScreen(),
-    const ServicesScreen(),
-    const AssistantScreen(),
-    const CouponsScreen(), // 🚀 4. NUEVA PANTALLA DE CUPONES
-  ];
+  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+    _screens = [
+      const SizedBox(), // Se usa para volver al Home
+      MapScreen(key: _mapKey),
+      const ServicesScreen(),
+      const AssistantScreen(),
+      const CouponsScreen(), // 🚀 4. NUEVA PANTALLA DE CUPONES
+    ];
     _startInactivityTimer(); // 🚀 Arrancamos el reloj al entrar
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybeShowFlashCoupon();
-    });
+  }
+
+  void notifyEnteredFromHome() {
+    if (!mounted) return;
+    if (_currentIndex != 1) {
+      setState(() => _currentIndex = 1);
+    }
+    _startInactivityTimer();
+    _flashCouponShown = false;
+    _maybeShowFlashCoupon();
+    _mapKey.currentState?.resetToKioskView();
   }
 
   Future<void> _maybeShowFlashCoupon() async {
     if (_flashCouponShown || !mounted) return;
     _flashCouponShown = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final lastId = prefs.getString('last_flash_coupon_id');
-      final coupon = await CouponService.instance
-          .fetchActiveFlashCoupon(excludeId: lastId);
+      final coupon = await CouponService.instance.fetchActiveFlashCoupon();
       if (!mounted || coupon == null) return;
-      await prefs.setString('last_flash_coupon_id', coupon.id);
       if (!mounted) return;
       await FlashCouponDialog.show(context, coupon);
     } catch (e) {
@@ -131,11 +139,9 @@ class _MainLayoutState extends State<MainLayout> {
     // Ocultar el warning
     setState(() => _showWarning = false);
 
-    // 🚀 2. Verificamos que el árbol de navegación esté intacto y permita regresar
-    if (Navigator.of(context).canPop()) {
-      debugPrint("⏳ TIMEOUT ALCANZADO: Volviendo a la publicidad...");
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
+    // 🚀 2. Volver al Home sin destruir el layout (mantiene cache de mapas)
+    debugPrint("⏳ TIMEOUT ALCANZADO: Volviendo a la publicidad...");
+    _exitToHome();
   }
 
   void _onItemTapped(int index) {
@@ -157,12 +163,21 @@ class _MainLayoutState extends State<MainLayout> {
 
     // Comportamiento normal de la navegación
     if (index == 0) {
-      Navigator.pop(context); // Volver a la pantalla de videos
-    } else {
-      setState(() {
-        _currentIndex = index;
-      });
+      _exitToHome();
+      return;
     }
+
+    setState(() {
+      _currentIndex = index;
+    });
+  }
+
+  void _exitToHome() {
+    if (!mounted) return;
+    if (_currentIndex != 1) {
+      setState(() => _currentIndex = 1);
+    }
+    widget.onExitToHome();
   }
 
   // --- MODAL 1: CONTRASEÑA DE SEGURIDAD ---
