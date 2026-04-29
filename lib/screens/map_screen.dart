@@ -705,7 +705,6 @@ class MapScreenState extends State<MapScreen> {
                   Positioned.fill(child: _build3DMapArea()),
 
                   // 2. Overlay transparente: cierra la búsqueda al tocar fuera del panel.
-                  //    Solo aparece cuando _isSearchVisible es true.
                   if (_isSearchVisible)
                     Positioned.fill(
                       child: PointerInterceptor(
@@ -718,11 +717,6 @@ class MapScreenState extends State<MapScreen> {
                     ),
 
                   // 3. Overlay: lupa + buscador + categorías + logos — sobre el mapa.
-                  // • PointerInterceptor: en Flutter Web coloca un div HTML encima del
-                  //   iframe para capturar clics antes de que el browser los entregue al iframe.
-                  // • Listener(opaque): en Android reclama el hit-test antes de que
-                  //   AndroidViewSurface (InAppWebView) lo intercepte.
-                  // Sus hijos (GestureDetector, TextField, etc.) reciben eventos normalmente.
                   Positioned(
                     top: 0,
                     left: 0,
@@ -730,12 +724,73 @@ class MapScreenState extends State<MapScreen> {
                     child: PointerInterceptor(
                       child: Listener(
                         behavior: HitTestBehavior.opaque,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildPremiumLogosAndSearchRow(),
-                            _buildSearchPanel(),
-                          ],
+                        // 1. ANIMATED SIZE: Hace que la caja crezca físicamente desde la lupa (Top-Left)
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 450),
+                          curve: Curves.easeOutQuart, // Efecto de aceleración rápida y frenado suave
+                          alignment: Alignment.topLeft, // ¡LA MAGIA AQUÍ! Todo crece desde el botón
+                          clipBehavior: Clip.none,
+                          // 2. ANIMATED SWITCHER: Hace un fundido suave de los elementos internos
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            switchInCurve: Curves.easeOut,
+                            switchOutCurve: Curves.easeIn,
+                            layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+                              // Esto evita saltos extraños al superponer los widgets durante la transición
+                              return Stack(
+                                alignment: Alignment.topLeft,
+                                children: <Widget>[
+                                  ...previousChildren,
+                                  if (currentChild != null) currentChild,
+                                ],
+                              );
+                            },
+                            // ESTADO 1: CERRADO (Lupa + Logos horizontales)
+                            child: !_isSearchVisible
+                                ? Container(
+                                    key: const ValueKey('closed_state'),
+                                    width: MediaQuery.of(context).size.width,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        _buildPremiumLogosAndSearchRow(),
+                                      ],
+                                    ),
+                                  )
+                                // ESTADO 2: ABIERTO (Buscador + Categorías + Logos verticales)
+                                : Container(
+                                    key: const ValueKey('open_state'),
+                                    width: MediaQuery.of(context).size.width,
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // LADO IZQUIERDO: Botón X + Logos verticales
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 8.0),
+                                              child: _buildSearchCloseButton(),
+                                            ),
+                                            _buildVerticalLogosColumn(),
+                                          ],
+                                        ),
+                                        // LADO DERECHO: Campo de texto + Categorías
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              _buildSearchInputField(),
+                                              _buildSearchPanelContent(),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                          ),
                         ),
                       ),
                     ),
@@ -780,11 +835,8 @@ class MapScreenState extends State<MapScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Categorías
+          // Solo dejamos las Categorías
           _buildCategoryRow(),
-          const SizedBox(height: 4),
-          // Logos de TODAS las tiendas (incluye premium) ordenadas por plan
-          _buildAllStoresLogosRow(),
         ],
       ),
     );
@@ -814,129 +866,140 @@ class MapScreenState extends State<MapScreen> {
   // ============================================================================
   // WIDGETS AUXILIARES
   // ============================================================================
+// 1. Estado normal: Lupa + Logos en Fila (Cuando _isSearchVisible es false)
 Widget _buildPremiumLogosAndSearchRow() {
-    final premiumStores = _allStores.where((store) {
+  final premiumStores = _premiumStores;
+  debugPrint('[MapScreen][TOPBAR] rebuild — visible=$_isSearchVisible premium=${premiumStores.length}');
+
+  return Container(
+    height: 65,
+    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+    child: Row(
+      children: [
+        _buildSearchCloseButton(), // Reutilizamos el botón
+        Expanded(
+          child: premiumStores.isEmpty || _isLoading
+              ? const SizedBox.shrink()
+              : ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: premiumStores.length,
+                  itemBuilder: (context, index) => _buildStoreLogo(premiumStores[index]),
+                ),
+        ),
+      ],
+    ),
+  );
+}
+
+// 2. El Botón de Lupa / Cerrar aislado
+Widget _buildSearchCloseButton() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        final next = !_isSearchVisible;
+        
+        // 1. Cambiamos el estado de visibilidad inmediatamente para iniciar la animación
+        setState(() {
+          _isSearchVisible = next;
+        });
+        
+        // 2. Si estamos cerrando, retrasamos el cálculo pesado para no interrumpir los FPS
+        if (!next) {
+          Future.delayed(const Duration(milliseconds: 250), () {
+            if (mounted) {
+              setState(() {
+                _searchController.clear();
+                _selectedCategory = 'Todas';
+                _filterStores();
+              });
+            }
+          });
+        }
+      },
+      child: Container(
+        width: 44,
+        height: 44,
+        margin: const EdgeInsets.only(left: 4, right: 8),
+        decoration: BoxDecoration(
+          color: _isSearchVisible ? AppColors.secondary : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          _isSearchVisible ? Icons.close_rounded : Icons.search_rounded,
+          color: _isSearchVisible ? Colors.white : AppColors.primary,
+          size: 22,
+        ),
+      ),
+    );
+  }
+
+// 3. El TextField aislado
+Widget _buildSearchInputField() {
+  return Container(
+      margin: const EdgeInsets.only(top: 8, left: 0, right: 8, bottom: 8), // <-- left en 0
+      decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(12),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.03),
+          blurRadius: 4,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: TextField(
+      controller: _searchController,
+      autofocus: true,
+      onChanged: (_) => _filterStores(),
+      style: TextStyle(
+        color: Colors.grey.shade800,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        hintText: 'Busca tienda, categoría...',
+        hintStyle: TextStyle(
+          color: Colors.grey.shade400,
+          fontSize: 14,
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          color: AppColors.primary.withOpacity(0.8),
+          size: 20,
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: Colors.grey.shade200,
+            width: 1.2,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: AppColors.primary.withOpacity(0.5),
+            width: 1.2,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        isDense: true,
+      ),
+    ),
+  );
+}
+
+List<Store> get _premiumStores {
+    return _allStores.where((store) {
       return store.planType != null && store.planType!.trim().isNotEmpty;
     }).toList()
       ..sort((a, b) => _getPlanPriority(a.planType).compareTo(_getPlanPriority(b.planType)));
-
-    debugPrint('[MapScreen][TOPBAR] rebuild — visible=$_isSearchVisible premium=${premiumStores.length}');
-
-    return Container(
-      height: 65,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-      child: Row(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              final next = !_isSearchVisible;
-              debugPrint('[MapScreen][LUPA] TAP recibido — cambiando a visible=$next');
-              setState(() {
-                _isSearchVisible = next;
-                if (!next) {
-                  _searchController.clear();
-                  _selectedCategory = 'Todas';
-                  _filterStores();
-                }
-              });
-              debugPrint('[MapScreen][LUPA] setState hecho — _isSearchVisible=$_isSearchVisible');
-            },
-            child: Container(
-              width: 44,
-              height: 44,
-              margin: const EdgeInsets.only(left: 4, right: 8),
-              decoration: BoxDecoration(
-                // Sin boxShadow: evita conflicto de compositing con InAppWebView
-                color: _isSearchVisible ? AppColors.secondary : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _isSearchVisible ? Icons.close_rounded : Icons.search_rounded,
-                color: _isSearchVisible ? Colors.white : AppColors.primary,
-                size: 22,
-              ),
-            ),
-          ),
-          // Cuando la búsqueda está abierta: barra de texto.
-          // Cuando está cerrada: logos de tiendas con plan.
-          Expanded(
-              child: _isSearchVisible
-              ? Container(
-                  // La caja contenedora aporta la misma sombra sutil que las categorías
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: TextField(
-            controller: _searchController,
-            autofocus: true,
-            onChanged: (_) => _filterStores(),
-            style: TextStyle(
-              color: Colors.grey.shade800, // Un gris oscuro es más suave a la vista que negro puro
-              fontSize: 14,
-              fontWeight: FontWeight.w500, // SemiBold ligero para mejor legibilidad
-            ),
-            decoration: InputDecoration(
-              hintText: 'Busca tienda, categoría...',
-              hintStyle: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 14,
-              ),
-              prefixIcon: Icon(
-                Icons.search_rounded, // search_rounded se ve más moderno
-                color: AppColors.primary.withOpacity(0.8), // Primario ligeramente suavizado
-                size: 20,
-              ),
-              filled: true,
-              fillColor: Colors.white, // Resalta limpiamente sobre el fondo general
-              
-              // Borde cuando NO está seleccionado (estático)
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Colors.grey.shade200,
-                  width: 1.2,
-                ),
-              ),
-              
-              // Borde cuando el usuario hace tap y está escribiendo (activo)
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: AppColors.primary.withOpacity(0.5), // Tinte primario elegante
-                  width: 1.2,
-                ),
-              ),
-              
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              isDense: true, // Mantiene el TextField compacto para que no altere tu layout
-            ),
-          ),
-        )
-      : (premiumStores.isEmpty || _isLoading
-          ? const SizedBox.shrink()
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: premiumStores.length,
-              itemBuilder: (context, index) => _buildStoreLogo(premiumStores[index]),
-            )),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildAllStoresLogosRow() {
     if (_filteredStores.isEmpty || _isLoading) return const SizedBox.shrink();
 
-    // Mismo alto y padding vertical que la fila de logos premium del top bar
     return SizedBox(
       height: 65,
       child: ListView.builder(
@@ -989,7 +1052,31 @@ Widget _buildPremiumLogosAndSearchRow() {
       ),
     );
   }
-  
+
+// 4. Logos Premium en Columna (Cuando _isSearchVisible es true)
+Widget _buildVerticalLogosColumn() {
+    if (_filteredStores.isEmpty || _isLoading) return const SizedBox.shrink();
+
+    return Container(
+      width: 60,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.65),
+      padding: const EdgeInsets.only(top: 8),
+      // OPTIMIZACIÓN AQUÍ: ListView.builder en lugar de SingleChildScrollView
+      child: ListView.builder(
+        padding: EdgeInsets.zero,
+        shrinkWrap: true,
+        itemCount: _filteredStores.length,
+        itemBuilder: (context, index) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10, left: 6),
+            child: _buildStoreLogo(_filteredStores[index]),
+          );
+        },
+      ),
+    );
+  }
+
+
 Widget _buildCategoryRow() {
     return SizedBox(
       height: 48,
@@ -1049,10 +1136,8 @@ Widget _buildCategoryRow() {
                     margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6), // Ajuste vertical sutil para la sombra
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      // Fondo: Translúcido si está seleccionado, blanco puro si no
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(30),
-                      // Borde: Usa el color primario si está seleccionado, gris muy suave si no
                       border: Border.all(
                         color: isSelected 
                             ? AppColors.primary.withOpacity(0.5) 
