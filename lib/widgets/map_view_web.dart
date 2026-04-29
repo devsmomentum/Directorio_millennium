@@ -81,7 +81,7 @@ class MapViewWebState extends State<MapViewWeb> {
         .join();
   }
 
-  String get _backgroundColorCss => '#EBEBEB';
+  String get _backgroundColorCss => '#C7C7C7';
 
   // ══════════════════════════════════════════════════════════════════════════
   // HTML inyectado con three.js y lógica de avatar
@@ -1046,6 +1046,7 @@ class MapViewWebState extends State<MapViewWeb> {
     controls.rotateSpeed = 0.55;
     controls.panSpeed = 0.8; // Aumentado para mejor paneo
     controls.enablePan = true;
+    controls.enableZoom = true;
     controls.screenSpacePanning = false;
     controls.minPolarAngle = THREE.MathUtils.degToRad(6);
     controls.maxPolarAngle = THREE.MathUtils.degToRad(86);
@@ -1065,10 +1066,10 @@ class MapViewWebState extends State<MapViewWeb> {
     }
 
     function setRotateMode() {
-      controls.enablePan = false;
+      controls.enablePan = true;
       controls.enableRotate = true;
       controls.touches.ONE = THREE.TOUCH.ROTATE;
-      controls.touches.TWO = THREE.TOUCH.DOLLY;
+      controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
       controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
       rotateBtn.classList.add('active-mode');
       panBtn.classList.remove('active-mode');
@@ -1136,6 +1137,9 @@ class MapViewWebState extends State<MapViewWeb> {
     let pointerStartX = 0;
     let pointerStartY = 0;
     let pointerStartTime = 0;
+    const activePointerIds = new Set();
+    let tapPointerId = null;
+    let hadMultiTouch = false;
 
     function notifyFlutter(handlerName, payload) {
       if (!window.flutter_inappwebview) return;
@@ -2171,6 +2175,12 @@ class MapViewWebState extends State<MapViewWeb> {
 
     function onCanvasPointerDown(event) {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
+      activePointerIds.add(event.pointerId);
+      if (activePointerIds.size > 1) {
+        hadMultiTouch = true;
+      }
+      if (activePointerIds.size !== 1) return;
+      tapPointerId = event.pointerId;
       pointerStartX = event.clientX;
       pointerStartY = event.clientY;
       pointerStartTime = performance.now();
@@ -2178,6 +2188,15 @@ class MapViewWebState extends State<MapViewWeb> {
 
     function onCanvasPointerUp(event) {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+      const isTapCandidate = !hadMultiTouch && event.pointerId === tapPointerId;
+      activePointerIds.delete(event.pointerId);
+      if (activePointerIds.size === 0) {
+        tapPointerId = null;
+        hadMultiTouch = false;
+      }
+
+      if (!isTapCandidate) return;
 
       const dx = event.clientX - pointerStartX;
       const dy = event.clientY - pointerStartY;
@@ -2192,8 +2211,17 @@ class MapViewWebState extends State<MapViewWeb> {
       }
     }
 
+    function onCanvasPointerCancel(event) {
+      activePointerIds.delete(event.pointerId);
+      if (activePointerIds.size === 0) {
+        tapPointerId = null;
+        hadMultiTouch = false;
+      }
+    }
+
     renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
     renderer.domElement.addEventListener('pointerup', onCanvasPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onCanvasPointerCancel);
 
     const loader = new GLTFLoader();
     loader.load(
