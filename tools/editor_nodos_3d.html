@@ -370,6 +370,44 @@
         }
 
         /* ============================================
+           CONNECTIONS (node panel)
+        ============================================ */
+        .conn-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .conn-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface-2);
+        }
+        .conn-meta {
+            flex: 1;
+            min-width: 0;
+        }
+        .conn-meta-title {
+            font-size: 11px;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .conn-meta-sub {
+            font-size: 9.5px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .conn-empty {
+            font-size: 10.5px;
+            color: var(--text-muted);
+        }
+
+        /* ============================================
            NODE ID CHIP & AUTOCOMPLETE
         ============================================ */
         .node-id-chip {
@@ -532,6 +570,7 @@
     <div class="hgroup">
         <button id="btn-center-nodes" class="btn btn-ghost hbtn" title="Centrar cámara en los nodos">⊙ Nodos</button>
         <button id="btn-center-model" class="btn btn-ghost hbtn" title="Centrar cámara en el modelo GLB">⊡ Mapa</button>
+        <button id="btn-mode-nodes"  class="btn btn-active hbtn" title="Activar o desactivar la colocación de nodos">➕ Nodos: ON</button>
         <button id="btn-mode-center"  class="btn btn-ghost hbtn" title="Clic en el mapa para mover el centro de rotación">🎯 Foco: OFF</button>
         <button id="btn-mode-connect" class="btn btn-ghost hbtn">🔗 Conectar: OFF</button>
     </div>
@@ -657,6 +696,16 @@
 
         <div class="pdiv"></div>
 
+        <div class="sec">
+            <div class="sec-label">Conexiones</div>
+            <select id="select-link-node" class="fselect fselect-full"></select>
+            <button id="btn-add-link" class="btn btn-ghost btn-full" style="margin-bottom:6px;">➕ Conectar</button>
+            <div id="list-node-links" class="conn-list"></div>
+        </div>
+
+        <div class="pdiv"></div>
+
+        <button id="btn-route-kiosk" class="btn btn-ghost btn-full" style="margin-bottom:6px;">🧭 Ruta a kiosco</button>
         <button id="btn-delete-node" class="btn btn-danger  btn-full">🗑 Eliminar Nodo</button>
 
     </div>
@@ -696,6 +745,8 @@
         stores: [], 
         kiosks: [], 
         selectedNodeId: null,
+        dbLoaded: false,
+        createModeActive: true,
         connectModeActive: false,
         recenterModeActive: false,
         pathLines: [],
@@ -743,7 +794,9 @@
     controls.enableDamping  = true;
     controls.dampingFactor  = 0.08;
     controls.maxPolarAngle  = Math.PI / 2 - 0.02;
-    controls.maxDistance    = 8000;
+    const MAX_DISTANCE_DEFAULT = 8000;
+    const MAX_DISTANCE_FREE    = 100000;
+    controls.maxDistance    = MAX_DISTANCE_DEFAULT;
     controls.minDistance    = 10;
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
@@ -757,6 +810,11 @@
     // ════════════════════════════════════════
     // CAMERA HELPERS
     // ════════════════════════════════════════
+    function updateZoomLimits() {
+        const unlock = State.dbLoaded || !!State.selectedNodeId;
+        controls.maxDistance = unlock ? MAX_DISTANCE_FREE : MAX_DISTANCE_DEFAULT;
+    }
+
     function centerCameraOnNodes() {
         if (nodeMeshes.length === 0) { centerCameraOnModel(); return; }
         const box = new THREE.Box3();
@@ -831,11 +889,12 @@
     }
 
     loadFloorModel('rg');
+    loadDbForCurrentFloor();
 
     document.getElementById('select-floor-model').addEventListener('change', e => {
         State.currentFloor = e.target.value;
         loadFloorModel(State.currentFloor);
-        clearGraph();
+        loadDbForCurrentFloor();
     });
 
     // ════════════════════════════════════════
@@ -889,13 +948,73 @@
     const raycaster = new THREE.Raycaster();
     const mouse     = new THREE.Vector2();
     let isDragging  = false;
+    let dragNodeId  = null;
+    let dragMoved   = false;
     const ptrDown   = new THREE.Vector2();
 
-    window.addEventListener('pointerdown', e => { ptrDown.set(e.clientX, e.clientY); isDragging = false; });
-    window.addEventListener('pointermove', e => {
-        if (ptrDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) isDragging = true;
+    function setNodePositionFromPoint(node, point) {
+        node.x = parseFloat(point.x.toFixed(2));
+        node.y = parseFloat(point.z.toFixed(2));
+        node.z_height = parseFloat(point.y.toFixed(2));
+        node._isModified = true;
+        updateNodeMeshPosition(node);
+        if (State.selectedNodeId === node.id) {
+            document.getElementById('input-pos-x').value = node.x;
+            document.getElementById('input-pos-y').value = node.y;
+            document.getElementById('input-pos-z').value = node.z_height ?? 0;
+        }
+    }
+
+    function getPointerWorldPoint(e, fallbackY) {
+        mouse.x = (e.clientX / window.innerWidth)  * 2 - 1;
+        mouse.y = (e.clientY / window.innerHeight)  * -2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const modelHit = raycaster.intersectObjects(interactableMeshes);
+        if (modelHit.length) return modelHit[0].point;
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -fallbackY);
+        const point = new THREE.Vector3();
+        return raycaster.ray.intersectPlane(plane, point) ? point : null;
+    }
+
+    window.addEventListener('pointerdown', e => {
+        if (e.target.closest('header, .panel, #sql-overlay')) return;
+        ptrDown.set(e.clientX, e.clientY);
+        isDragging = false;
+        dragMoved = false;
+
+        mouse.x = (e.clientX / window.innerWidth)  * 2 - 1;
+        mouse.y = (e.clientY / window.innerHeight)  * -2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        const nodeHit = raycaster.intersectObjects(nodeMeshes);
+        if (nodeHit.length && !State.connectModeActive) {
+            dragNodeId = nodeHit[0].object.userData.id;
+            controls.enabled = false;
+        }
     });
+
+    window.addEventListener('pointermove', e => {
+        const dist = ptrDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY));
+        if (dist > 5) isDragging = true;
+
+        if (!dragNodeId) return;
+        if (dist > 2) dragMoved = true;
+
+        const node = State.nodes.get(dragNodeId);
+        if (!node) return;
+        const point = getPointerWorldPoint(e, node.z_height || 0);
+        if (point) setNodePositionFromPoint(node, point);
+    });
+
     window.addEventListener('pointerup', e => {
+        if (dragNodeId) {
+            const id = dragNodeId;
+            dragNodeId = null;
+            controls.enabled = true;
+            if (!dragMoved) handleNodeClick(id);
+            return;
+        }
+
         if (e.target.closest('header, .panel, #sql-overlay')) return;
         if (isDragging) return;
 
@@ -908,7 +1027,7 @@
 
         const modelHit = raycaster.intersectObjects(interactableMeshes);
         if (modelHit.length) {
-            if (State.recenterModeActive) {
+            if (State.recenterModeActive || !State.createModeActive) {
                 controls.target.copy(modelHit[0].point);
                 controls.update();
             } else {
@@ -1072,6 +1191,9 @@
         State.edges.set(edge.id, edge);
         renderEdgeVisual(nA, nB);
         updateStatus();
+        if (State.selectedNodeId && (aId === State.selectedNodeId || bId === State.selectedNodeId)) {
+            updateConnectionsPanel();
+        }
     }
 
     function renderEdgeVisual(nA, nB, mat = matEdgeDefault) {
@@ -1106,6 +1228,19 @@
     // ════════════════════════════════════════
     // MODE BUTTONS
     // ════════════════════════════════════════
+    document.getElementById('btn-mode-nodes').addEventListener('click', e => {
+        State.createModeActive = !State.createModeActive;
+        const btn = e.currentTarget;
+        if (State.createModeActive) {
+            btn.textContent = '➕ Nodos: ON';
+            btn.className = 'btn btn-active hbtn';
+        } else {
+            btn.textContent = '➕ Nodos: OFF';
+            btn.className = 'btn btn-ghost hbtn';
+        }
+        updateStatus();
+    });
+
     document.getElementById('btn-mode-center').addEventListener('click', e => {
         State.recenterModeActive = !State.recenterModeActive;
         const btn = e.currentTarget;
@@ -1195,6 +1330,8 @@
         document.getElementById('input-pos-z').value   = node.z_height ?? 0;
 
         document.getElementById('ui-panel').style.display = 'flex';
+        updateConnectionsPanel();
+        updateZoomLimits();
     }
 
     function deselectNode() {
@@ -1204,9 +1341,127 @@
             const nd = State.nodes.get(m.userData.id);
             if (nd) m.material = matForType(nd.node_type);
         });
+        updateConnectionsPanel();
+        updateZoomLimits();
+    }
+
+    function getConnectedEdges(nodeId) {
+        const edges = [];
+        for (const [, edge] of State.edges) {
+            if (edge.node_a_id === nodeId || edge.node_b_id === nodeId) edges.push(edge);
+        }
+        return edges;
+    }
+
+    function getOtherNodeId(edge, nodeId) {
+        return edge.node_a_id === nodeId ? edge.node_b_id : edge.node_a_id;
+    }
+
+    function updateConnectionsPanel() {
+        const list = document.getElementById('list-node-links');
+        const select = document.getElementById('select-link-node');
+        list.innerHTML = '';
+        select.innerHTML = '';
+
+        if (!State.selectedNodeId) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Selecciona un nodo primero';
+            opt.disabled = true;
+            opt.selected = true;
+            select.appendChild(opt);
+            return;
+        }
+
+        const node = State.nodes.get(State.selectedNodeId);
+        if (!node) return;
+
+        const edges = getConnectedEdges(node.id);
+        const connectedIds = new Set(edges.map(e => getOtherNodeId(e, node.id)));
+
+        const baseOpt = document.createElement('option');
+        baseOpt.value = '';
+        baseOpt.textContent = 'Seleccionar nodo...';
+        baseOpt.selected = true;
+        select.appendChild(baseOpt);
+
+        const candidates = Array.from(State.nodes.values())
+            .filter(n => n.id !== node.id && !connectedIds.has(n.id));
+
+        if (candidates.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No hay nodos disponibles';
+            opt.disabled = true;
+            select.appendChild(opt);
+        } else {
+            candidates.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n.id;
+                opt.textContent = `${n.node_type || 'node'} · ${n.id}`;
+                select.appendChild(opt);
+            });
+        }
+
+        if (edges.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'conn-empty';
+            empty.textContent = 'Sin conexiones';
+            list.appendChild(empty);
+            return;
+        }
+
+        edges.forEach(edge => {
+            const otherId = getOtherNodeId(edge, node.id);
+            const otherNode = State.nodes.get(otherId);
+
+            const row = document.createElement('div');
+            row.className = 'conn-row';
+
+            const meta = document.createElement('div');
+            meta.className = 'conn-meta';
+
+            const title = document.createElement('div');
+            title.className = 'conn-meta-title';
+            title.textContent = `${otherNode?.node_type || 'node'} · ${otherId}`;
+
+            const sub = document.createElement('div');
+            sub.className = 'conn-meta-sub';
+            sub.textContent = `Piso ${otherNode?.floor_level || '-'}`;
+
+            meta.appendChild(title);
+            meta.appendChild(sub);
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-danger btn-icon';
+            delBtn.textContent = '✕';
+            delBtn.title = 'Eliminar conexión';
+            delBtn.addEventListener('click', () => removeEdge(edge.id));
+
+            row.appendChild(meta);
+            row.appendChild(delBtn);
+            list.appendChild(row);
+        });
+    }
+
+    function removeEdge(edgeId) {
+        if (!State.edges.has(edgeId)) return;
+        State.edges.delete(edgeId);
+        rebuildEdgeVisuals();
+        updateStatus();
+        updateConnectionsPanel();
     }
 
     document.getElementById('btn-close-panel').addEventListener('click', deselectNode);
+
+    document.getElementById('btn-add-link').addEventListener('click', () => {
+        if (!State.selectedNodeId) return;
+        const select = document.getElementById('select-link-node');
+        const targetId = select.value;
+        if (!targetId) return;
+        createEdge(State.selectedNodeId, targetId);
+        updateConnectionsPanel();
+    });
 
     // REAL-TIME COORDINATE EDITING
     ['input-pos-x', 'input-pos-y', 'input-pos-z'].forEach(inputId => {
@@ -1234,21 +1489,203 @@
     });
 
     // ════════════════════════════════════════
+    // ROUTE TO KIOSK (K-NN PATH)
+    // ════════════════════════════════════════
+    function dist3d(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = (a.z_height || 0) - (b.z_height || 0);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    function addAdj(adj, from, to, w) {
+        const list = adj.get(from);
+        if (!list.some(e => e.id === to)) list.push({ id: to, w });
+    }
+
+    function buildKnnGraph(nodes, k) {
+        const adj = new Map();
+        nodes.forEach(n => adj.set(n.id, []));
+
+        nodes.forEach(n => {
+            const dists = [];
+            nodes.forEach(m => {
+                if (m.id === n.id) return;
+                dists.push({ id: m.id, w: dist3d(n, m) });
+            });
+            dists.sort((a, b) => a.w - b.w);
+            dists.slice(0, k).forEach(d => {
+                addAdj(adj, n.id, d.id, d.w);
+                addAdj(adj, d.id, n.id, d.w);
+            });
+        });
+
+        return adj;
+    }
+
+    function dijkstraToTargets(adj, startId, targets) {
+        const dist = new Map();
+        const prev = new Map();
+        const unvisited = new Set(adj.keys());
+
+        adj.forEach((_, id) => dist.set(id, Infinity));
+        dist.set(startId, 0);
+
+        while (unvisited.size) {
+            let current = null;
+            let best = Infinity;
+            unvisited.forEach(id => {
+                const d = dist.get(id);
+                if (d < best) { best = d; current = id; }
+            });
+            if (current === null) break;
+            unvisited.delete(current);
+
+            if (targets.has(current)) {
+                return { target: current, prev, dist: best };
+            }
+
+            adj.get(current).forEach(edge => {
+                if (!unvisited.has(edge.id)) return;
+                const nd = dist.get(current) + edge.w;
+                if (nd < dist.get(edge.id)) {
+                    dist.set(edge.id, nd);
+                    prev.set(edge.id, current);
+                }
+            });
+        }
+
+        return null;
+    }
+
+    function buildPath(prev, startId, targetId) {
+        const path = [targetId];
+        let cur = targetId;
+        while (cur !== startId) {
+            cur = prev.get(cur);
+            if (!cur) return null;
+            path.push(cur);
+        }
+        path.reverse();
+        return path;
+    }
+
+    function buildGreedyPathToKiosk(startNode, kioskNode, floorNodes) {
+        const path = [startNode.id];
+        const visited = new Set(path);
+        let current = startNode;
+        const eps = 0.0001;
+        const maxSteps = floorNodes.length + 2;
+
+        for (let i = 0; i < maxSteps; i++) {
+            if (current.id === kioskNode.id) return path;
+            const currentToKiosk = dist3d(current, kioskNode);
+
+            const candidates = floorNodes.filter(n => n.id !== current.id && !visited.has(n.id));
+            if (!candidates.length) break;
+
+            const closer = candidates.filter(n => dist3d(n, kioskNode) < currentToKiosk - eps);
+            const pool = closer.length ? closer : candidates;
+
+            let best = null;
+            let bestDist = Infinity;
+            let bestKioskDist = Infinity;
+            pool.forEach(n => {
+                const dCur = dist3d(current, n);
+                const dK = dist3d(n, kioskNode);
+                if (dCur < bestDist - eps || (Math.abs(dCur - bestDist) <= eps && dK < bestKioskDist)) {
+                    best = n;
+                    bestDist = dCur;
+                    bestKioskDist = dK;
+                }
+            });
+
+            if (!best) break;
+            path.push(best.id);
+            visited.add(best.id);
+            current = best;
+        }
+
+        return null;
+    }
+
+    document.getElementById('btn-route-kiosk').addEventListener('click', () => {
+        if (!State.selectedNodeId) return;
+        const startNode = State.nodes.get(State.selectedNodeId);
+        if (!startNode) return;
+
+        const floor = startNode.floor_level;
+        const floorNodes = Array.from(State.nodes.values()).filter(n => n.floor_level === floor);
+        const kioskNodes = floorNodes.filter(n => n.node_type === 'kiosk');
+        const kioskIds = new Set(kioskNodes.map(n => n.id));
+
+        if (!kioskIds.size) {
+            alert('No hay kioscos en este piso.');
+            return;
+        }
+        if (kioskIds.has(startNode.id)) {
+            alert('El nodo seleccionado ya es un kiosco.');
+            return;
+        }
+        if (floorNodes.length < 2) {
+            alert('No hay suficientes nodos para crear una ruta.');
+            return;
+        }
+
+        let nearestKiosk = null;
+        let nearestDist = Infinity;
+        kioskNodes.forEach(k => {
+            const d = dist3d(startNode, k);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestKiosk = k;
+            }
+        });
+
+        if (!nearestKiosk) {
+            alert('No se encontró un kiosco cercano en este piso.');
+            return;
+        }
+
+        const path = buildGreedyPathToKiosk(startNode, nearestKiosk, floorNodes);
+        if (!path || path.length < 2 || path[path.length - 1] !== nearestKiosk.id) {
+            alert('No se pudo construir la ruta por nodos cercanos hacia el kiosco.');
+            return;
+        }
+
+        let newEdges = 0;
+        for (let i = 0; i < path.length - 1; i++) {
+            const before = State.edges.size;
+            createEdge(path[i], path[i + 1]);
+            if (State.edges.size > before) newEdges++;
+        }
+
+        updateStatus();
+        alert(`Ruta creada con ${path.length} nodos. Enlaces nuevos: ${newEdges}.`);
+    });
+
+    // ════════════════════════════════════════
     // SUPABASE LOAD
     // ════════════════════════════════════════
-    document.getElementById('btn-load-db').addEventListener('click', async () => {
+    async function loadDbForCurrentFloor() {
         const floorNum = getFloorNumber(State.currentFloor);
         const headers  = {
             'apikey':        ENV.SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${ENV.SUPABASE_ANON_KEY}`,
             'Content-Type':  'application/json'
         };
+        State.dbLoaded = false;
+        updateZoomLimits();
         try {
             const resStores = await fetch(`${ENV.SUPABASE_URL}/rest/v1/stores?select=id,name,local_number,node_id,floor_level`, { headers });
             if(resStores.ok) State.stores = await resStores.json();
 
-            const resKiosks = await fetch(`${ENV.SUPABASE_URL}/rest/v1/kiosks?select=id,name,hardware_id,node_id,floor`, { headers });
-            if(resKiosks.ok) State.kiosks = await resKiosks.json();
+            const resKiosks = await fetch(`${ENV.SUPABASE_URL}/rest/v1/kiosks?select=id,name,hardware_id,node_id,floor_level`, { headers });
+            if (resKiosks.ok) {
+                State.kiosks = await resKiosks.json();
+            } else {
+                console.warn('Error fetching kiosks:', resKiosks.status, await resKiosks.text());
+            }
 
             const resN = await fetch(`${ENV.SUPABASE_URL}/rest/v1/map_nodes?floor_level=eq.${floorNum}&is_3d=eq.true`, { headers });
             if (!resN.ok) throw new Error('Error fetching map_nodes');
@@ -1283,11 +1720,15 @@
                 }
             });
             updateStatus();
+            State.dbLoaded = true;
+            updateZoomLimits();
         } catch (err) {
             console.error(err);
             alert('Error cargando BD. Verifica las credenciales en config.js o si la columna floor_level existe.');
         }
-    });
+    }
+
+    document.getElementById('btn-load-db').addEventListener('click', loadDbForCurrentFloor);
 
     // ════════════════════════════════════════
     // GRAPH CLEANUP
@@ -1390,6 +1831,9 @@
         } else if (State.recenterModeActive) {
             document.getElementById('sb-mode').textContent = 'Modo: Recentrar';
             dot.className = 'dot-amber';
+        } else if (!State.createModeActive) {
+            document.getElementById('sb-mode').textContent = 'Modo: Navegar';
+            dot.className = 'dot-green';
         } else {
             document.getElementById('sb-mode').textContent = 'Modo: Crear';
             dot.className = 'dot-green';
