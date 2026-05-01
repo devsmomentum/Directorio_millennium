@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../models/store.dart';
+import '../../../services/avatar_navigation_service.dart';
 import '../controllers/character_animator_controller.dart';
 import '../controllers/path_renderer_controller.dart';
 import '../services/store_selection_service.dart';
@@ -19,6 +20,14 @@ typedef RouteDispatcher = Future<bool> Function(Store store);
 /// Es el "lado opuesto" del [RouteDispatcher]: el state manager no conoce
 /// el WebView, sólo sabe pedir "para todo".
 typedef RouteStopper = Future<void> Function();
+
+/// Callback que reproduce un segmento subsiguiente de una ruta cross-floor.
+/// Lo invoca el manager tras la pausa de transición; el consumidor (MapScreen)
+/// debe: (1) cambiar `_selectedFloor` al piso del segmento, (2) colocar al
+/// avatar en el nodo de entrada (primer waypoint), (3) llamar a
+/// `startAvatarRoute(segment.waypoints)`. Devuelve `true` si la animación
+/// arrancó.
+typedef NextSegmentDispatcher = Future<bool> Function(FloorSegment segment);
 
 /// Orquestador de la vista del mapa. Es la **única** entidad autorizada para
 /// transicionar entre estados y para invocar `clearPath()`/`stop()` de los
@@ -39,8 +48,21 @@ class MapStateManager extends ChangeNotifier {
   /// corriendo el loop de caminar.
   RouteStopper? routeStopper;
 
+  /// Inyectado por [MapScreen]. Se invoca al terminar un segmento intermedio
+  /// de una ruta cross-floor para reproducir el siguiente. Si es `null`, las
+  /// rutas multi-piso se comportan como rutas de un solo piso (compatibilidad).
+  NextSegmentDispatcher? nextSegmentDispatcher;
+
+  /// Duración de la pausa visual entre dos segmentos cross-floor. Coincide con
+  /// el tiempo conceptual de "subir/bajar" la escalera o ascensor.
+  Duration transitionPause = const Duration(seconds: 2);
+
   StreamSubscription<Store>? _selectionSub;
   MapViewState _state = const MapIdleState();
+
+  // Estado de la ruta cross-floor en curso.
+  AvatarRoute? _activeRoute;
+  int _currentSegmentIndex = 0;
 
   MapStateManager({
     required this.selectionService,
@@ -48,6 +70,7 @@ class MapStateManager extends ChangeNotifier {
     required this.characterAnimator,
     this.routeDispatcher,
     this.routeStopper,
+    this.nextSegmentDispatcher,
   }) {
     _selectionSub =
         selectionService.onStoreSelected.listen(_handleStoreSelected);
@@ -60,9 +83,19 @@ class MapStateManager extends ChangeNotifier {
   Store? get activeStore => switch (_state) {
         MapPathRenderingState s => s.store,
         MapCharacterWalkingState s => s.store,
+        MapTransitioningState s => s.store,
         MapArrivedState s => s.store,
         MapIdleState _ => null,
       };
+
+  /// Llamado por [MapScreen] inmediatamente después de calcular la ruta y
+  /// antes de iniciar la animación del primer segmento. El manager guarda la
+  /// ruta para encadenar los segmentos siguientes cuando llegue cada
+  /// `notifyCharacterArrived`.
+  void registerActiveRoute(AvatarRoute route) {
+    _activeRoute = route;
+    _currentSegmentIndex = 0;
+  }
 
   void _setState(MapViewState next) {
     if (identical(_state, next)) return;
@@ -76,6 +109,8 @@ class MapStateManager extends ChangeNotifier {
     //    Importante: también pedimos al motor 3D que pare el loop anterior;
     //    si no lo hacemos, una nueva ruta arrancaría sobre la animación
     //    previa y se acumularían trails residuales.
+    _activeRoute = null;
+    _currentSegmentIndex = 0;
     await routeStopper?.call();
     pathRenderer.clearPath();
     characterAnimator.stop();
@@ -116,6 +151,11 @@ class MapStateManager extends ChangeNotifier {
 
   /// Notificación desde el motor 3D: el avatar alcanzó el destino la primera
   /// vez. La ruta dibujada NO se toca (el loop de caminar puede continuar).
+  ///
+  /// Si la ruta activa tiene más segmentos pendientes (cross-floor), entra en
+  /// `MapTransitioningState`, espera la pausa de transición, cambia de piso y
+  /// reproduce el siguiente segmento. Si era el último, termina en
+  /// `MapArrivedState`.
   void notifyCharacterArrived() {
     final current = _state;
     if (current is! MapCharacterWalkingState) {
@@ -125,8 +165,63 @@ class MapStateManager extends ChangeNotifier {
       return;
     }
     characterAnimator.notifyArrived();
-    _setState(MapArrivedState(current.store));
-    // ¡IMPORTANTE! No invocamos pathRenderer.clearPath() aquí.
+
+    final route = _activeRoute;
+    final nextIndex = _currentSegmentIndex + 1;
+    final hasNext = route != null && nextIndex < route.segments.length;
+
+    if (!hasNext || nextSegmentDispatcher == null) {
+      _setState(MapArrivedState(current.store));
+      return;
+    }
+
+    // Hay siguiente segmento → pausa de transición + cambio de piso.
+    final fromSeg = route.segments[_currentSegmentIndex];
+    final nextSeg = route.segments[nextIndex];
+    _setState(MapTransitioningState(
+      store: current.store,
+      fromFloor: fromSeg.floorLevel,
+      toFloor: nextSeg.floorLevel,
+      completedSegmentIndex: _currentSegmentIndex,
+    ));
+    // ignore: discarded_futures
+    _runTransitionAndContinue(current.store, nextSeg, nextIndex);
+  }
+
+  Future<void> _runTransitionAndContinue(
+    Store store,
+    FloorSegment nextSeg,
+    int nextIndex,
+  ) async {
+    await Future<void>.delayed(transitionPause);
+
+    // Si en medio de la pausa el usuario cambió de tienda o salió de la
+    // pantalla, abortar: ya no estamos en transición.
+    if (_state is! MapTransitioningState) return;
+
+    final dispatcher = nextSegmentDispatcher;
+    if (dispatcher == null) {
+      _setState(MapArrivedState(store));
+      return;
+    }
+
+    // El consumidor cambia de piso, coloca al avatar en el nodo de entrada y
+    // arranca la animación del segmento. Mientras tanto, el manager limpia el
+    // trail del piso anterior para no acumular residuos.
+    pathRenderer.clearPath();
+
+    final ok = await dispatcher(nextSeg);
+    if (!ok) {
+      debugPrint(
+        '[MapStateManager] nextSegmentDispatcher falló en segmento $nextIndex',
+      );
+      _resetToIdle();
+      return;
+    }
+
+    _currentSegmentIndex = nextIndex;
+    pathRenderer.beginRender(store);
+    _setState(MapPathRenderingState(store));
   }
 
   /// Llamar al cambiar de pantalla (dispose de MapScreen) o cuando el
@@ -145,6 +240,8 @@ class MapStateManager extends ChangeNotifier {
       stopper();
     }
     // 2. Sincronizar flags internos.
+    _activeRoute = null;
+    _currentSegmentIndex = 0;
     pathRenderer.clearPath();
     characterAnimator.stop();
     _setState(const MapIdleState());

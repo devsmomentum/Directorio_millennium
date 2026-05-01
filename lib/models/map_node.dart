@@ -6,6 +6,14 @@ class MapNode {
   final double zHeight;
   final bool is3d;
   final String nodeType;
+  /// Rol del nodo cuando es conector (escalera / ascensor):
+  /// 'exit'  → el avatar camina HASTA aquí para salir del piso.
+  /// 'entry' → el avatar APARECE aquí al llegar de otro piso.
+  /// 'both'  → bidireccional (escalera fija, ascensor).
+  /// null    → no es conector.
+  final String? connectorRole;
+  /// UUID del nodo par en el piso destino (exit ↔ entry).
+  final String? pairedNodeId;
 
   MapNode({
     required this.id,
@@ -15,7 +23,15 @@ class MapNode {
     required this.nodeType,
     this.zHeight = 0.0,
     this.is3d = false,
+    this.connectorRole,
+    this.pairedNodeId,
   });
+
+  bool get isConnector =>
+      nodeType == 'stairs' || nodeType == 'elevator';
+
+  bool get isExit => connectorRole == 'exit' || connectorRole == 'both';
+  bool get isEntry => connectorRole == 'entry' || connectorRole == 'both';
 
   factory MapNode.fromJson(Map<String, dynamic> json) {
     return MapNode(
@@ -28,6 +44,8 @@ class MapNode {
           : (json['z_height'] as num).toDouble(),
       is3d: json['is_3d'] as bool? ?? false,
       nodeType: json['node_type'] as String,
+      connectorRole: json['connector_role'] as String?,
+      pairedNodeId: json['paired_node_id'] as String?,
     );
   }
 }

@@ -30,6 +30,23 @@ class MapCharacterWalkingState extends MapViewState {
   const MapCharacterWalkingState(this.store);
 }
 
+/// Pausa entre dos segmentos de una ruta cross-floor: el avatar acaba de
+/// llegar al nodo conector del piso `fromFloor` y, tras una pausa breve,
+/// reaparecerá caminando en `toFloor`. La UI puede mostrar un overlay de
+/// transición durante este estado.
+class MapTransitioningState extends MapViewState {
+  final Store store;
+  final String fromFloor;
+  final String toFloor;
+  final int completedSegmentIndex;
+  const MapTransitioningState({
+    required this.store,
+    required this.fromFloor,
+    required this.toFloor,
+    required this.completedSegmentIndex,
+  });
+}
+
 /// El personaje completó (al menos una vez) el recorrido. El loop puede
 /// continuar; lo importante es que la ruta dibujada NO se limpia aquí.
 class MapArrivedState extends MapViewState {

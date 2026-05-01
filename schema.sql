@@ -101,6 +101,7 @@ CREATE TABLE public.map_edges (
   node_b_id uuid,
   distance_weight double precision NOT NULL,
   is_3d boolean NOT NULL DEFAULT false,
+  directional boolean NOT NULL DEFAULT false,
   CONSTRAINT map_edges_pkey PRIMARY KEY (id),
   CONSTRAINT map_edges_node_a_id_fkey FOREIGN KEY (node_a_id) REFERENCES public.map_nodes(id),
   CONSTRAINT map_edges_node_b_id_fkey FOREIGN KEY (node_b_id) REFERENCES public.map_nodes(id)
@@ -113,6 +114,8 @@ CREATE TABLE public.map_nodes (
   node_type character varying NOT NULL,
   z_height double precision DEFAULT 0.0,
   is_3d boolean NOT NULL DEFAULT false,
+  connector_role text CHECK (connector_role IN ('exit', 'entry', 'both')),
+  paired_node_id uuid REFERENCES public.map_nodes(id) ON DELETE SET NULL,
   CONSTRAINT map_nodes_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.map_polygons (

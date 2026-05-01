@@ -6,17 +6,41 @@ import '../models/store.dart';
 import '../utils/node_world_mapping.dart';
 import '../utils/pathfinder.dart';
 
+/// Tramo de ruta dentro de un único piso. La ruta cross-floor es una secuencia
+/// de estos: el último nodo de un segmento es el EXIT del conector y el primer
+/// nodo del siguiente segmento es el ENTRY en el piso destino.
+class FloorSegment {
+  final String floorLevel;
+  final List<MapNode> nodes;
+  final List<Map<String, dynamic>> waypoints;
+
+  const FloorSegment({
+    required this.floorLevel,
+    required this.nodes,
+    required this.waypoints,
+  });
+
+  bool get isEmpty => nodes.isEmpty;
+}
+
 /// Resultado de un cálculo de ruta para el avatar.
+///
+/// Compatibilidad: `path` y `waypoints` reflejan el primer segmento (el que se
+/// anima en el piso visible al inicio), igual que la versión previa que
+/// truncaba al primer cruce. La novedad está en `segments`, que conserva la
+/// ruta completa para que el orquestador pueda reproducirla piso por piso.
 class AvatarRoute {
   final List<MapNode> path;
   final List<Map<String, dynamic>> waypoints;
   final bool crossesFloors;
+  final List<FloorSegment> segments;
   final String? errorMessage;
 
   const AvatarRoute({
     required this.path,
     required this.waypoints,
     required this.crossesFloors,
+    this.segments = const [],
     this.errorMessage,
   });
 
@@ -157,34 +181,56 @@ class AvatarNavigationService {
     final allFloors = path.map((n) => n.floorLevel).toSet();
     final crossesFloors = allFloors.length > 1;
 
-    // Si estamos en un piso concreto, solo animamos los waypoints de ese piso.
-    // Estrategia: recorrer desde el inicio, tomar nodos mientras floorLevel
-    // coincida; al primer cambio cortamos. De ese modo el avatar termina en la
-    // escalera/elevador de salida del piso actual.
-    List<MapNode> floorSegment;
-    if (currentFloorLevel != null && crossesFloors) {
-      floorSegment = <MapNode>[];
-      for (final node in path) {
-        if (node.floorLevel == currentFloorLevel) {
-          floorSegment.add(node);
-        } else if (floorSegment.isNotEmpty) {
-          break; // cortamos en el primer nodo del siguiente piso
-        }
-      }
-      if (floorSegment.length < 2) {
-        // La ruta sale del piso inmediatamente → mostramos solo el kiosko.
-        floorSegment = path.take(1).toList();
-      }
-    } else {
-      floorSegment = path;
+    // Segmentar la ruta por piso. Cada cambio de floorLevel inicia un nuevo
+    // FloorSegment; el último nodo del segmento previo (EXIT del conector) y
+    // el primer nodo del siguiente (ENTRY en el piso destino) están unidos en
+    // el grafo por una arista is_3d. El orquestador anima cada segmento por
+    // separado y entre dos segmentos hace la transición visual de piso.
+    final segments = _segmentByFloor(path);
+
+    // Para mantener compatibilidad con los callers existentes, `path` y
+    // `waypoints` siguen siendo el primer segmento jugable: el que coincide
+    // con el piso visible (currentFloorLevel) si existe, o el inicial.
+    FloorSegment first = segments.first;
+    if (currentFloorLevel != null) {
+      first = segments.firstWhere(
+        (s) => s.floorLevel == currentFloorLevel,
+        orElse: () => segments.first,
+      );
     }
 
-    final waypoints = floorSegment.map(mapping.toWaypoint).toList(growable: false);
-
     return AvatarRoute(
-      path: floorSegment,
-      waypoints: waypoints,
+      path: first.nodes,
+      waypoints: first.waypoints,
       crossesFloors: crossesFloors,
+      segments: segments,
+    );
+  }
+
+  List<FloorSegment> _segmentByFloor(List<MapNode> path) {
+    if (path.isEmpty) return const [];
+    final out = <FloorSegment>[];
+    var currentFloor = path.first.floorLevel;
+    var bucket = <MapNode>[path.first];
+    for (var i = 1; i < path.length; i++) {
+      final node = path[i];
+      if (node.floorLevel == currentFloor) {
+        bucket.add(node);
+      } else {
+        out.add(_buildSegment(currentFloor, bucket));
+        currentFloor = node.floorLevel;
+        bucket = <MapNode>[node];
+      }
+    }
+    out.add(_buildSegment(currentFloor, bucket));
+    return out;
+  }
+
+  FloorSegment _buildSegment(String floor, List<MapNode> nodes) {
+    return FloorSegment(
+      floorLevel: floor,
+      nodes: List<MapNode>.unmodifiable(nodes),
+      waypoints: nodes.map(mapping.toWaypoint).toList(growable: false),
     );
   }
 }

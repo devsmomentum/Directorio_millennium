@@ -129,6 +129,7 @@ class MapScreenState extends State<MapScreen> {
       characterAnimator: _characterAnimator,
       routeDispatcher: _dispatchRouteForStore,
       routeStopper: _stopRouteOnAllFloors,
+      nextSegmentDispatcher: _playFloorSegment,
     );
 
     _loadData();
@@ -568,22 +569,39 @@ class MapScreenState extends State<MapScreen> {
   }
 
   Future<bool> _dispatchRouteForStore(Store store) async {
-    final targetFloorName = store.floorLevel;
-
     setState(() {
       _selectedStoreForRoute = store;
-      _routeDispatched = false; 
+      _routeDispatched = false;
     });
 
-    if (targetFloorName != null && targetFloorName != _selectedFloor) {
+    // El primer segmento de la ruta SIEMPRE arranca en el piso del kiosko
+    // (no en el de la tienda). Si el usuario está mirando otro piso,
+    // cambiamos al del kiosko antes de animar. El cambio a piso(s)
+    // intermedio(s) y al de la tienda lo gestiona el state manager mediante
+    // `nextSegmentDispatcher` cuando llega cada `onAvatarArrived`.
+    final startFloor = _normalizeFloorCode(_kioskFloorLevel);
+    final firstFloor = startFloor.isNotEmpty ? startFloor : _selectedFloor;
+
+    if (firstFloor != _selectedFloor) {
       setState(() {
-        _selectedFloor = targetFloorName;
-        _activatedFloors.add(targetFloorName);
+        _selectedFloor = firstFloor;
+        _activatedFloors.add(firstFloor);
       });
-      if (_loadedFloors.contains(targetFloorName)) {
-        return _runAvatarRouteTo(store);
+      if (!_loadedFloors.contains(firstFloor)) {
+        // Esperar a que el WebView del piso del kiosko termine de cargar
+        // antes de arrancar el avatar; el preload background ya lo está
+        // empujando, esto solo cubre la primera invocación.
+        final t0 = DateTime.now();
+        while (!_loadedFloors.contains(firstFloor)) {
+          if (DateTime.now().difference(t0).inSeconds > 6) {
+            debugPrint(
+              '[MapScreen] Timeout esperando carga de piso $firstFloor (kiosko)',
+            );
+            return false;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+        }
       }
-      return true;
     }
 
     return _runAvatarRouteTo(store);
@@ -631,9 +649,64 @@ class MapScreenState extends State<MapScreen> {
       return false;
     }
 
+    // Registrar la ruta completa para que el state manager pueda encadenar
+    // los segmentos cross-floor. `route.waypoints` ya corresponde al primer
+    // segmento jugable (mismo piso visible o el primero si no coincide).
+    _stateManager.registerActiveRoute(route);
+
     final mapView = _floorKeys[_selectedFloor]?.currentState;
     _routeDispatched = true;
     await mapView?.startAvatarRoute(route.waypoints);
+    return true;
+  }
+
+  /// Reproduce un segmento subsiguiente de una ruta cross-floor. Lo invoca el
+  /// state manager tras la pausa de transición. Pasos:
+  /// 1. Cambiar `_selectedFloor` al piso del segmento (el `IndexedStack` swap
+  ///    al WebView correspondiente — su .glb ya está pre-cargado vía la cola
+  ///    de preload o va a cargarse ahora).
+  /// 2. Esperar a que ese piso esté listo (onMapLoaded ya disparado).
+  /// 3. Colocar al avatar en el primer waypoint (nodo de entrada).
+  /// 4. `startAvatarRoute(segment.waypoints)`.
+  Future<bool> _playFloorSegment(FloorSegment segment) async {
+    final targetFloor = segment.floorLevel;
+
+    if (targetFloor != _selectedFloor) {
+      if (mounted) {
+        setState(() {
+          _selectedFloor = targetFloor;
+          _activatedFloors.add(targetFloor);
+        });
+      }
+      // Esperar a que el WebView del piso destino dispare onMapLoaded si
+      // todavía no lo hizo. La cola de preload usualmente lo tiene listo,
+      // pero somos defensivos.
+      if (!_loadedFloors.contains(targetFloor)) {
+        final t0 = DateTime.now();
+        while (!_loadedFloors.contains(targetFloor)) {
+          if (DateTime.now().difference(t0).inSeconds > 6) {
+            debugPrint(
+              '[MapScreen] Timeout esperando carga de piso $targetFloor en cross-floor',
+            );
+            return false;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+        }
+      }
+    }
+
+    final mapView = _floorKeys[targetFloor]?.currentState;
+    if (mapView == null || segment.waypoints.isEmpty) {
+      return false;
+    }
+
+    final entry = segment.waypoints.first;
+    await mapView.setAvatarAtWorld(
+      (entry['x'] as num).toDouble(),
+      (entry['y'] as num).toDouble(),
+      (entry['z'] as num).toDouble(),
+    );
+    await mapView.startAvatarRoute(segment.waypoints);
     return true;
   }
 

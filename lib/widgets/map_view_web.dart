@@ -596,7 +596,7 @@ class MapViewWebState extends State<MapViewWeb> {
       startHalo: null,   // Marcador de inicio de ruta
       time: 0,           // Acumulador para animaciones de pulso
       // ── Fase de intro: la ruta se "dibuja" en el piso antes de caminar ──
-      introDuration: 0.9, // segundos
+      introDuration: 0.35, // segundos (antes 0.9: el avatar esperaba demasiado)
       introProgress: 0,   // 0..1
       introComplete: false,
       totalLineVerts: 0,  // vértices densificados de la línea (para drawRange)
@@ -1820,7 +1820,10 @@ class MapViewWebState extends State<MapViewWeb> {
         const sz = mapBounds.getSize(new THREE.Vector3());
         options.speed = Math.max(sz.x, sz.z, 1.0) * 0.08;
       }
-      avatarState.speed = Number.isFinite(options.speed) ? options.speed : 1.2;
+      // Fallback robusto: si options.speed no fue calculable y mapBounds tampoco
+      // estaba listo, seguimos teniendo una velocidad razonable. Antes era 1.2
+      // fijo, lo que en mapas grandes se sentía estático.
+      avatarState.speed = Number.isFinite(options.speed) ? options.speed : 1.6;
       // Densificamos la ruta del avatar (Catmull-Rom centripetal): muchos
       // waypoints cortos = rotación slerp y posición lerp se sienten continuas
       // aun cuando el A* solo devuelve 2-3 nodos. El trail visual (línea +
@@ -1868,25 +1871,15 @@ class MapViewWebState extends State<MapViewWeb> {
         avatarState.root.quaternion.copy(avatarState.targetQuat);
       }
 
-      // Caminar SOLO después de que la ruta termine de dibujarse en el piso.
-      // Mientras tanto el avatar queda quieto en el primer waypoint (idle).
-      avatarState.isWalking = false;
-      playIdle();
-      const startWalking = function() {
-        avatarState.isWalking = true;
-        playWalk();
-        const walkClipName = (avatarState.clips.walk && avatarState.clips.walk.name) || '<none>';
-        console.log('[MapViewWeb][Avatar] intro→walk OK (clip=' + walkClipName + ')');
-      };
-      // Si por algún motivo el trail no se construyó (caso defensivo), no
-      // dejar al avatar atascado en idle: arranca a caminar en el siguiente
-      // tick.
-      if (!trailState.lineMat) {
-        console.log('[MapViewWeb][Avatar] Trail ausente → caminando sin intro');
-        startWalking();
-      } else {
-        trailState.onIntroDone = startWalking;
-      }
+      // Caminar inmediatamente: el trail (línea punteada) se dibuja en paralelo
+      // y termina en 0.35s, así que ya no bloquea el primer paso del avatar.
+      // Antes esperábamos onIntroDone (~0.9s) y se sentía lento al elegir
+      // tienda. La fluidez visual se conserva porque ambos sistemas se
+      // sincronizan por progreso, no por orden.
+      avatarState.isWalking = true;
+      playWalk();
+      const walkClipName = (avatarState.clips.walk && avatarState.clips.walk.name) || '<none>';
+      console.log('[MapViewWeb][Avatar] walk inmediato (clip=' + walkClipName + ')');
       console.log(
         '[MapViewWeb][Avatar] Ruta iniciada — ' + waypoints.length + ' wp originales → '
         + denseRoute.length + ' puntos densificados'
@@ -2710,14 +2703,21 @@ class MapViewWebState extends State<MapViewWeb> {
   ///
   /// [waypoints] debe ser una lista de mapas `{x, y, z}` en coordenadas del
   /// mundo three.js (ver `NodeWorldMapping`).
-  /// [speed] está en unidades/segundo del mundo.
+  /// [speed] está en unidades/segundo del mundo. Si es `null` (o no se pasa),
+  /// el motor JS calcula la velocidad como ~8 % del span del mapa por segundo
+  /// (cruzar el mapa en ~12 s) — recomendado, porque en mapas grandes el
+  /// fallback fijo 1.2 u/s hace que el avatar parezca casi estático.
   Future<void> startAvatarRoute(
     List<Map<String, dynamic>> waypoints, {
-    double speed = 1.2,
+    double? speed,
   }) async {
     if (_webViewController == null) return;
     final payload = jsonEncode(waypoints);
-    final opts = jsonEncode({'speed': speed});
+    // Si speed es null, NO lo incluimos en opts para que el JS active el
+    // auto-cálculo proporcional al tamaño del mapa.
+    final optsMap = <String, dynamic>{};
+    if (speed != null) optsMap['speed'] = speed;
+    final opts = jsonEncode(optsMap);
 
     // Flutter Web: evitamos recargar el HTML — eso es lo que producía el
     // flash negro al seleccionar tienda. Empujamos el comando a la iframe
@@ -2728,7 +2728,7 @@ class MapViewWebState extends State<MapViewWeb> {
       final ok = _postCommandToIframe({
         'cmd': 'startAvatarRoute',
         'payload': waypoints,
-        'opts': {'speed': speed},
+        'opts': optsMap,
       });
       if (ok) {
         debugPrint('[MapViewWeb][Flutter→Web][WEB] startAvatarRoute postMessage (${waypoints.length} wp)');

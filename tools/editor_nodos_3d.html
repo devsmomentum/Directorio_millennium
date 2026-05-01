@@ -703,6 +703,48 @@
             <div id="list-node-links" class="conn-list"></div>
         </div>
 
+        <div class="pdiv" id="pdiv-vertical" style="display:none;"></div>
+
+        <!-- Panel visible sólo cuando el nodo es escalera o ascensor -->
+        <div class="sec" id="sec-vertical-link" style="display:none;">
+            <div class="sec-label">Conector de piso</div>
+
+            <!-- Rol del nodo: la pregunta que el usuario entiende -->
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">
+                ¿Qué hace el avatar en este punto?
+            </div>
+            <select id="select-connector-role" class="fselect fselect-full" style="margin-bottom:10px;">
+                <option value="exit">🚶 Sale del piso (va a la escalera para subir/bajar)</option>
+                <option value="entry">📍 Llega al piso (aparece aquí viniendo de otro piso)</option>
+                <option value="both">↕ Ambas (escalera fija / ascensor — tránsito libre)</option>
+            </select>
+
+            <!-- Vínculo: sólo visible en exit y both (los que inician la transición) -->
+            <div id="sec-pair-link">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">
+                    Nodo de llegada en el piso destino
+                    <span style="color:#f87171;">(Entrada del otro piso)</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;">Piso destino</label>
+                    <select id="select-pair-floor" class="fselect" style="flex:1;">
+                        <option value="rg">RG — Planta Baja</option>
+                        <option value="pl">PL</option>
+                        <option value="c1">C1</option>
+                        <option value="c2">C2</option>
+                        <option value="c3">C3</option>
+                        <option value="c4">C4</option>
+                    </select>
+                    <button id="btn-fetch-pair-candidates" class="btn btn-ghost" style="font-size:11px;padding:4px 8px;">🔍 Buscar</button>
+                </div>
+                <select id="select-pair-node" class="fselect fselect-full" style="margin-bottom:6px;">
+                    <option value="">Pulsa Buscar para ver conectores del piso destino</option>
+                </select>
+                <div id="chip-current-pair" style="display:none;font-size:10px;color:#86efac;margin-bottom:6px;padding:4px 8px;background:rgba(134,239,172,.1);border-radius:4px;word-break:break-all;"></div>
+                <button id="btn-link-vertical" class="btn btn-primary btn-full">↕ Guardar vínculo</button>
+            </div>
+        </div>
+
         <div class="pdiv"></div>
 
         <button id="btn-route-kiosk" class="btn btn-ghost btn-full" style="margin-bottom:6px;">🧭 Ruta a kiosco</button>
@@ -750,7 +792,11 @@
         connectModeActive: false,
         recenterModeActive: false,
         pathLines: [],
-        calib: { scale: 1, ox: 0, oy: 0, oz: 0, rotY: 0 }
+        calib: { scale: 1, ox: 0, oy: 0, oz: 0, rotY: 0 },
+        // Candidatos de "nodo par" (otro piso) recuperados del REST. Se
+        // cachean por piso para no repetir el GET cada vez que el usuario
+        // abre el panel de conexión vertical.
+        pairCandidatesByFloor: new Map()
     };
 
     const interactableMeshes = [];
@@ -1113,9 +1159,22 @@
         const val = e.target.value;
         const secStore = document.getElementById('sec-store-search');
         const secKiosk = document.getElementById('sec-kiosk-search');
-        
+
         secStore.style.display = val === 'store' ? 'block' : 'none';
         secKiosk.style.display = val === 'kiosk' ? 'block' : 'none';
+
+        const isConnector = val === 'stairs' || val === 'elevator';
+        document.getElementById('sec-vertical-link').style.display = isConnector ? 'block' : 'none';
+        document.getElementById('pdiv-vertical').style.display = isConnector ? 'block' : 'none';
+        if (isConnector) {
+            // Al cambiar a conector, inicializar rol en 'exit' si no tiene.
+            const node = State.nodes.get(State.selectedNodeId);
+            if (node && !node.connector_role) node.connector_role = 'exit';
+            document.getElementById('select-connector-role').value =
+                (node && node.connector_role) ? node.connector_role : 'exit';
+            document.getElementById('sec-pair-link').style.display = 'block';
+            document.getElementById('chip-current-pair').style.display = 'none';
+        }
 
         // Auto guardado del tipo de nodo
         if (State.selectedNodeId) {
@@ -1175,21 +1234,39 @@
     // ════════════════════════════════════════
     // EDGE MANAGEMENT
     // ════════════════════════════════════════
-    function createEdge(aId, bId) {
+    // opts.directional: true → arista one-way (sólo node_a_id → node_b_id).
+    // opts.bIsRemote:   true → el nodo B vive en otro piso y no está en
+    //                   State.nodes (vínculo vertical). Usamos las
+    //                   coordenadas suministradas en opts.bData para
+    //                   calcular distance_weight, pero NO renderizamos la
+    //                   línea (el otro nodo no está en escena).
+    function createEdge(aId, bId, opts) {
+        opts = opts || {};
         const nA = State.nodes.get(aId);
-        const nB = State.nodes.get(bId);
+        const nB = opts.bIsRemote ? opts.bData : State.nodes.get(bId);
+        if (!nA || !nB) return;
+
         for (const [, e] of State.edges) {
             if ((e.node_a_id === aId && e.node_b_id === bId) ||
                 (e.node_a_id === bId && e.node_b_id === aId)) return;
         }
-        const dx = nA.x - nB.x, dy = nA.y - nB.y, dz = nA.z_height - nB.z_height;
+        const dx = nA.x - nB.x;
+        const dy = nA.y - nB.y;
+        const dz = (nA.z_height || 0) - (nB.z_height || 0);
         const edge = {
-            id: crypto.randomUUID(), node_a_id: aId, node_b_id: bId,
+            id: crypto.randomUUID(),
+            node_a_id: aId,
+            node_b_id: bId,
             distance_weight: parseFloat(Math.sqrt(dx*dx + dy*dy + dz*dz).toFixed(3)),
-            is_3d: true, _isNew: true
+            is_3d: true,
+            directional: !!opts.directional,
+            _isNew: true,
+            // Marcamos para que el SQL exporte la fila aunque el otro nodo
+            // no esté cargado en esta sesión (evita romper el FK al insertar).
+            _remoteB: !!opts.bIsRemote,
         };
         State.edges.set(edge.id, edge);
-        renderEdgeVisual(nA, nB);
+        if (!opts.bIsRemote) renderEdgeVisual(nA, nB);
         updateStatus();
         if (State.selectedNodeId && (aId === State.selectedNodeId || bId === State.selectedNodeId)) {
             updateConnectionsPanel();
@@ -1303,9 +1380,43 @@
         
         const secStore = document.getElementById('sec-store-search');
         const secKiosk = document.getElementById('sec-kiosk-search');
-        
+
         secStore.style.display = sel.value === 'store' ? 'block' : 'none';
         secKiosk.style.display = sel.value === 'kiosk' ? 'block' : 'none';
+
+        // Conectores verticales (escaleras / ascensores): mostrar panel de
+        // rol y vínculo cross-floor.
+        const isConnector = sel.value === 'stairs' || sel.value === 'elevator';
+        document.getElementById('sec-vertical-link').style.display = isConnector ? 'block' : 'none';
+        document.getElementById('pdiv-vertical').style.display = isConnector ? 'block' : 'none';
+        if (isConnector) {
+            // Cargar el rol guardado del nodo (si ya tiene uno).
+            const roleSelect = document.getElementById('select-connector-role');
+            roleSelect.value = node.connector_role || 'exit';
+
+            // El panel de vínculo solo se muestra para exit/both.
+            const needsPair = roleSelect.value === 'exit' || roleSelect.value === 'both';
+            document.getElementById('sec-pair-link').style.display = needsPair ? 'block' : 'none';
+
+            // Preseleccionar en el selector un piso distinto al actual.
+            const allFloors = ['rg','pl','c1','c2','c3','c4'];
+            const curCode   = State.currentFloor; // ej. 'c1'
+            const nextCode  = allFloors.find(f => f !== curCode) || 'pl';
+            const floorSel  = document.getElementById('select-pair-floor');
+            if (floorSel.value === curCode) floorSel.value = nextCode;
+
+            // Si el nodo ya tiene un par guardado, mostrar el chip de confirmación.
+            const chip = document.getElementById('chip-current-pair');
+            if (node.paired_node_id) {
+                chip.textContent = `Vínculo actual: ${node.paired_node_id.slice(0, 8)}…`;
+                chip.style.display = 'block';
+            } else {
+                chip.style.display = 'none';
+            }
+            // Reset del select de candidatos; el usuario re-busca cuando quiera.
+            document.getElementById('select-pair-node').innerHTML =
+                '<option value="">Pulsa Buscar para ver conectores del piso destino</option>';
+        }
 
         // Llenar el input con el texto en caso de tener ya un id vinculado
         const storeInput = document.getElementById('input-store-search');
@@ -1337,6 +1448,7 @@
     function deselectNode() {
         State.selectedNodeId = null;
         document.getElementById('ui-panel').style.display = 'none';
+        document.getElementById('chip-current-pair').style.display = 'none';
         nodeMeshes.forEach(m => {
             const nd = State.nodes.get(m.userData.id);
             if (nd) m.material = matForType(nd.node_type);
@@ -1414,6 +1526,8 @@
         edges.forEach(edge => {
             const otherId = getOtherNodeId(edge, node.id);
             const otherNode = State.nodes.get(otherId);
+            const isCrossFloor = edge._remoteB
+                || (otherNode && parseInt(otherNode.floor_level) !== parseInt(node.floor_level));
 
             const row = document.createElement('div');
             row.className = 'conn-row';
@@ -1423,11 +1537,26 @@
 
             const title = document.createElement('div');
             title.className = 'conn-meta-title';
-            title.textContent = `${otherNode?.node_type || 'node'} · ${otherId}`;
+            const baseLabel = otherNode
+                ? `${otherNode.node_type || 'node'} · ${otherId}`
+                : `(otro piso) · ${otherId}`;
+            title.textContent = baseLabel;
+            // Etiquetas de direccionalidad: el avatar no transita las
+            // aristas one-way en sentido contrario, así que es importante
+            // ver de un vistazo si la conexión es de subida, bajada o libre.
+            if (edge.directional) {
+                const arrow = (edge.node_a_id === node.id) ? ' →' : ' ←';
+                title.textContent += arrow + ' (one-way)';
+            }
+            if (isCrossFloor) {
+                title.textContent += ' ↕';
+            }
 
             const sub = document.createElement('div');
             sub.className = 'conn-meta-sub';
-            sub.textContent = `Piso ${otherNode?.floor_level || '-'}`;
+            const otherFloor = otherNode?.floor_level
+                ?? (edge._remoteB ? '?' : '-');
+            sub.textContent = `Piso ${otherFloor}${isCrossFloor ? ' (cross-floor)' : ''}`;
 
             meta.appendChild(title);
             meta.appendChild(sub);
@@ -1461,6 +1590,126 @@
         if (!targetId) return;
         createEdge(State.selectedNodeId, targetId);
         updateConnectionsPanel();
+    });
+
+    // ════════════════════════════════════════════════════════════════════
+    // CONECTOR DE PISO — Rol + vínculo entry/exit
+    // ════════════════════════════════════════════════════════════════════
+
+    // Autoguarda el rol del conector al cambiar el select.
+    document.getElementById('select-connector-role').addEventListener('change', (e) => {
+        if (!State.selectedNodeId) return;
+        const node = State.nodes.get(State.selectedNodeId);
+        node.connector_role = e.target.value;
+        node._isModified = true;
+        // Sólo los nodos "Salida" y "Ambas" necesitan vincular a una entrada.
+        const needsPair = e.target.value === 'exit' || e.target.value === 'both';
+        document.getElementById('sec-pair-link').style.display = needsPair ? 'block' : 'none';
+    });
+
+    // Busca conectores (stairs/elevator) del piso destino en la BD.
+    // Sólo muestra los que tienen rol 'entry' o 'both', porque son los puntos
+    // donde el avatar puede APARECER al llegar a ese piso.
+    document.getElementById('btn-fetch-pair-candidates').addEventListener('click', async () => {
+        // floorCode = código interno (ej. 'c1'), floorLabel = código BD (ej. 'C1')
+        const floorCode  = document.getElementById('select-pair-floor').value;
+        const floorLabel = getFloorNumber(floorCode);   // 'RG','PL','C1'…
+        const sel        = document.getElementById('select-pair-node');
+
+        if (!floorCode) { alert('Selecciona el piso destino'); return; }
+        if (floorLabel === getFloorNumber(State.currentFloor)) {
+            alert('El piso destino debe ser distinto al piso actual.');
+            return;
+        }
+
+        sel.innerHTML = '<option value="">Cargando…</option>';
+        try {
+            // Usar las mismas credenciales y headers que el resto del editor.
+            const headers = {
+                'apikey':        ENV.SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${ENV.SUPABASE_ANON_KEY}`,
+                'Content-Type':  'application/json',
+            };
+            const url = `${ENV.SUPABASE_URL}/rest/v1/map_nodes`
+                + `?floor_level=eq.${encodeURIComponent(floorLabel)}`
+                + `&is_3d=eq.true`
+                + `&node_type=in.(stairs,elevator)`;
+
+            const res = await fetch(url, { headers });
+            if (!res.ok) {
+                const body = await res.text();
+                throw new Error(`${res.status} — ${body}`);
+            }
+            const rows = await res.json();
+            State.pairCandidatesByFloor.set(floorLabel, rows);
+
+            sel.innerHTML = '';
+            if (rows.length === 0) {
+                sel.innerHTML = `<option value="">Sin conectores en piso ${floorLabel}</option>`;
+                return;
+            }
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Selecciona el nodo de llegada…';
+            sel.appendChild(placeholder);
+
+            rows.forEach(n => {
+                const o = document.createElement('option');
+                o.value = n.id;
+                const roleLabel = n.connector_role
+                    ? ({ entry: ' ✔ Entrada', exit: ' ✖ Salida', both: ' ↕ Ambas' }[n.connector_role] || '')
+                    : ' (sin rol aún)';
+                o.textContent = `${n.node_type}${roleLabel} · `
+                    + `(${n.x.toFixed(1)}, ${n.y.toFixed(1)}) · ${n.id.slice(0, 8)}`;
+                sel.appendChild(o);
+            });
+        } catch (err) {
+            console.error('[VerticalLink] fetch error', err);
+            sel.innerHTML = `<option value="">Error: ${String(err)}</option>`;
+        }
+    });
+
+    // Guarda el vínculo: actualiza paired_node_id en el nodo seleccionado y
+    // crea la arista cross-floor con las flags correctas.
+    document.getElementById('btn-link-vertical').addEventListener('click', () => {
+        if (!State.selectedNodeId) return;
+        const thisNode = State.nodes.get(State.selectedNodeId);
+        if (!thisNode) return;
+
+        const pairId = document.getElementById('select-pair-node').value;
+        if (!pairId) { alert('Selecciona el nodo de llegada en el piso destino.'); return; }
+
+        const floorLabel = getFloorNumber(document.getElementById('select-pair-floor').value);
+        const pool  = State.pairCandidatesByFloor.get(floorLabel) || [];
+        const pair  = pool.find(n => n.id === pairId);
+        if (!pair) { alert('Vuelve a pulsar Buscar e intenta de nuevo.'); return; }
+
+        if (String(pair.floor_level) === String(thisNode.floor_level)) {
+            alert('El nodo par está en el mismo piso (' + thisNode.floor_level + '). Usa "Conexiones" para vínculos horizontales.');
+            return;
+        }
+
+        // Guardar el paired_node_id en el nodo actual.
+        thisNode.paired_node_id = pairId;
+        thisNode._isModified    = true;
+
+        // Arista cross-floor.
+        // Rol 'exit' → directional=true, a=este (salida), b=par (entrada).
+        // Rol 'both' → directional=false (ascensor / escalera fija).
+        const role       = thisNode.connector_role || 'exit';
+        const directional = (role === 'exit');
+        createEdge(thisNode.id, pairId, {
+            directional,
+            bIsRemote: true,
+            bData: pair,
+        });
+
+        // Mostrar chip con el nodo vinculado para confirmación visual.
+        const chip = document.getElementById('chip-current-pair');
+        chip.textContent = `✔ Vinculado a: ${pair.node_type} · piso ${pair.floor_level} · ${pairId.slice(0, 8)}…`;
+        chip.style.display = 'block';
+
+        document.getElementById('select-pair-node').value = '';
     });
 
     // REAL-TIME COORDINATE EDITING
@@ -1713,10 +1962,24 @@
             if (!resE.ok) throw new Error('Error fetching map_edges');
             const dbEdges = await resE.json();
             dbEdges.forEach(e => {
-                if (State.nodes.has(e.node_a_id) && State.nodes.has(e.node_b_id)) {
+                const aIn = State.nodes.has(e.node_a_id);
+                const bIn = State.nodes.has(e.node_b_id);
+                if (aIn && bIn) {
+                    // Arista intra-piso: la renderizamos como siempre.
                     e._isNew = false;
+                    e.directional = !!e.directional;
                     State.edges.set(e.id, e);
                     renderEdgeVisual(State.nodes.get(e.node_a_id), State.nodes.get(e.node_b_id));
+                } else if (aIn || bIn) {
+                    // Arista cross-floor (un extremo en otro piso): la
+                    // mantenemos en State para que el usuario la vea en el
+                    // panel de conexiones del nodo y no cree duplicados,
+                    // pero NO la renderizamos (no podemos dibujar la línea
+                    // hacia un nodo que no está en escena).
+                    e._isNew = false;
+                    e._remoteB = true;
+                    e.directional = !!e.directional;
+                    State.edges.set(e.id, e);
                 }
             });
             updateStatus();
@@ -1770,13 +2033,15 @@
         if (nodesToSync.length > 0) {
             sql += `-- === UPSERT MAP NODES ===\n`;
             nodesToSync.forEach(n => {
-                sql += `INSERT INTO public.map_nodes (id, floor_level, x, y, z_height, node_type, is_3d)\n`;
-                sql += `VALUES ('${n.id}', '${n.floor_level}', ${n.x}, ${n.y}, ${n.z_height}, '${n.node_type}', ${n.is_3d})\n`;
+                const role      = n.connector_role ? `'${n.connector_role}'` : 'NULL';
+                const pairedId  = n.paired_node_id  ? `'${n.paired_node_id}'`  : 'NULL';
+                sql += `INSERT INTO public.map_nodes (id, floor_level, x, y, z_height, node_type, is_3d, connector_role, paired_node_id)\n`;
+                sql += `VALUES ('${n.id}', '${n.floor_level}', ${n.x}, ${n.y}, ${n.z_height}, '${n.node_type}', ${n.is_3d}, ${role}, ${pairedId})\n`;
                 sql += `ON CONFLICT (id) DO UPDATE SET\n`;
                 sql += `  floor_level = EXCLUDED.floor_level, x = EXCLUDED.x, y = EXCLUDED.y,\n`;
-                sql += `  z_height = EXCLUDED.z_height, node_type = EXCLUDED.node_type, is_3d = EXCLUDED.is_3d;\n\n`;
-                
-                // SQL adicional si vinculó tienda o kiosco
+                sql += `  z_height = EXCLUDED.z_height, node_type = EXCLUDED.node_type, is_3d = EXCLUDED.is_3d,\n`;
+                sql += `  connector_role = EXCLUDED.connector_role, paired_node_id = EXCLUDED.paired_node_id;\n\n`;
+
                 if (n.node_type === 'store' && n.store_id) {
                     sql += `-- Vinculando tienda seleccionada al nodo\n`;
                     sql += `UPDATE public.stores SET node_id = '${n.id}' WHERE id = '${n.store_id}';\n\n`;
@@ -1793,9 +2058,17 @@
         if (edgesToSync.length > 0) {
             sql += `-- === INSERT MAP EDGES ===\n`;
             edgesToSync.forEach(e => {
-                sql += `INSERT INTO public.map_edges (id, node_a_id, node_b_id, distance_weight, is_3d)\n`;
-                sql += `VALUES ('${e.id}', '${e.node_a_id}', '${e.node_b_id}', ${e.distance_weight}, ${e.is_3d})\n`;
-                sql += `ON CONFLICT (id) DO UPDATE SET distance_weight = EXCLUDED.distance_weight;\n\n`;
+                const directional = !!e.directional;
+                if (directional || e._remoteB) {
+                    sql += `-- ${e._remoteB ? 'cross-floor' : 'directional'} edge`;
+                    if (directional) sql += ` (one-way: a→b — escalera mecánica/rampa)`;
+                    sql += `\n`;
+                }
+                sql += `INSERT INTO public.map_edges (id, node_a_id, node_b_id, distance_weight, is_3d, directional)\n`;
+                sql += `VALUES ('${e.id}', '${e.node_a_id}', '${e.node_b_id}', ${e.distance_weight}, ${e.is_3d}, ${directional})\n`;
+                sql += `ON CONFLICT (id) DO UPDATE SET\n`;
+                sql += `  distance_weight = EXCLUDED.distance_weight,\n`;
+                sql += `  directional     = EXCLUDED.directional;\n\n`;
                 e._isNew = false;
             });
         }

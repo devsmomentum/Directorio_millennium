@@ -45,7 +45,11 @@ class Pathfinder {
         continue; // arista referencia a nodo ausente
       }
       a.add(_Adjacency(bId, e.distanceWeight));
-      b.add(_Adjacency(aId, e.distanceWeight));
+      // Aristas direccionales (escaleras mecánicas, rampas one-way) sólo
+      // se transitan a→b. Las bidireccionales también agregan b→a.
+      if (!e.directional) {
+        b.add(_Adjacency(aId, e.distanceWeight));
+      }
     }
     debugPrint(
       '[Pathfinder] Grafo construido: nodos=${nodes.length} '
