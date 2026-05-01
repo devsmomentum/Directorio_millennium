@@ -7,6 +7,7 @@ import '../services/analytics_service.dart'; // 🚀 Importamos el rastreador
 import '../services/currency_service.dart';
 import '../widgets/screen_ad_banners.dart';
 import '../theme/app_theme.dart';
+import 'parking_payment_screen.dart';
 
 class ServiceModel {
   final String id;
@@ -541,7 +542,13 @@ class _ServicesScreenState extends State<ServicesScreen> {
 
   Widget _buildEstacionamientoCard(ServiceModel srv) {
     return GestureDetector(
-      onTap: _showComingSoonModal,
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const ParkingPaymentScreen(),
+          ),
+        );
+      },
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(

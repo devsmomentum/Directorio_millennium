@@ -80,6 +80,9 @@ class MapViewWebState extends State<MapViewWeb> {
   final MapViewPostBridge _postBridge = MapViewPostBridge();
   bool _postBridgeReady = false;
 
+  // Fast-path: evita evalJs en cada llamada a _waitBridgeReady una vez confirmado.
+  bool _bridgeConfirmed = false;
+
   // 90 s: tiempo suficiente para primera descarga en frío del .glb + three.js CDN.
   // En arranques subsiguientes el caché del WebView sirve todo en <2 s.
   static const Duration _kMapLoadTimeout = Duration(seconds: 90);
@@ -2585,10 +2588,14 @@ class MapViewWebState extends State<MapViewWeb> {
   Future<bool> _waitBridgeReady({
     Duration timeout = const Duration(seconds: 3),
   }) async {
+    if (_bridgeConfirmed) return true;
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       final ready = await _evalJs("window.__bridgeReady === true ? 'yes' : 'no';");
-      if (ready == 'yes') return true;
+      if (ready == 'yes') {
+        _bridgeConfirmed = true;
+        return true;
+      }
       await Future.delayed(const Duration(milliseconds: 120));
     }
     return false;

@@ -13,6 +13,7 @@ import 'theme_manager.dart';
 import 'services/telemetry_service.dart';
 import 'services/kiosk_bootstrap_service.dart';
 import 'widgets/emergency_wrapper.dart';
+import 'services/supabase_config.dart';
 
 Future<void> main() async {
   // En release, si algo falla antes de runApp, la app suele quedarse “en blanco”.
@@ -50,9 +51,8 @@ Future<void> main() async {
 
     // Inicialización de Supabase
     await Supabase.initialize(
-      url: 'https://lrjgocjubpxruobshtoe.supabase.co',
-      anonKey:
-          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyamdvY2p1YnB4cnVvYnNodG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNTQwMTUsImV4cCI6MjA4ODgzMDAxNX0.hQrCDgMdhJ_B2ncjNhDBFetnnxhpbt7vP-EnzgKFT_I',
+      url: SupabaseConfig.url,
+      anonKey: SupabaseConfig.anonKey,
     );
 
     await ThemeManager().init();

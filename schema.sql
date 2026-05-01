@@ -197,3 +197,29 @@ CREATE TABLE public.transactions (
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT transactions_pkey PRIMARY KEY (id)
 );
+
+-- 1. Tabla para el estado maestro de los tickets
+CREATE TABLE parking_tickets (
+    barcode TEXT PRIMARY KEY,
+    enter_date TIMESTAMP WITH TIME ZONE,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'exited')),
+    exit_code TEXT, -- Guardaremos el 'code' que devuelve la función /notify para la factura
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 2. Tabla para las órdenes de pago de tu pasarela (PAP)
+CREATE TABLE pap_payment_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id TEXT UNIQUE NOT NULL,       -- El ID que genera tu pasarela
+    barcode TEXT REFERENCES parking_tickets(barcode),
+    amount NUMERIC(15, 2) NOT NULL,      -- Monto total
+    url_payment TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed', 'cancelled')),
+    payment_method TEXT,                 -- Ej: Tarjeta, Pago Móvil
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Índices para mejorar la velocidad de búsqueda
+CREATE INDEX idx_pap_orders_barcode ON pap_payment_orders(barcode);
+CREATE INDEX idx_pap_orders_status ON pap_payment_orders(status);
