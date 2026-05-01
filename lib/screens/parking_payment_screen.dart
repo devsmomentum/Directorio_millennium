@@ -6,19 +6,41 @@ import '../features/parking/parking_payment_controller.dart';
 import '../features/parking/parking_payment_models.dart';
 
 class ParkingPaymentScreen extends StatelessWidget {
-  const ParkingPaymentScreen({super.key});
+  const ParkingPaymentScreen({
+    super.key,
+    this.onBack,
+    this.onOpenPaymentUrl,
+    this.embedInLayout = false,
+  });
+
+  final VoidCallback? onBack;
+  final ValueChanged<String>? onOpenPaymentUrl;
+  final bool embedInLayout;
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => ParkingPaymentController(),
-      child: const ParkingPaymentView(),
+      child: ParkingPaymentView(
+        onBack: onBack,
+        onOpenPaymentUrl: onOpenPaymentUrl,
+        embedInLayout: embedInLayout,
+      ),
     );
   }
 }
 
 class ParkingPaymentView extends StatefulWidget {
-  const ParkingPaymentView({super.key});
+  const ParkingPaymentView({
+    super.key,
+    this.onBack,
+    this.onOpenPaymentUrl,
+    this.embedInLayout = false,
+  });
+
+  final VoidCallback? onBack;
+  final ValueChanged<String>? onOpenPaymentUrl;
+  final bool embedInLayout;
 
   @override
   State<ParkingPaymentView> createState() => _ParkingPaymentViewState();
@@ -42,122 +64,132 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Consumer<ParkingPaymentController>(
+        builder: (context, controller, _) {
+          final ticket = controller.ticket;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (widget.onBack != null) ...[
+                TextButton.icon(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Volver a servicios'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+              Text(
+                'Pago de estacionamiento',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Ingresa el codigo del ticket para consultar el monto.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurface.withOpacity(0.7),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _TicketCodeInput(
+                      controller: _codeController,
+                      isLoading: controller.isLoading,
+                      onSearch: () => _submit(controller),
+                      onSubmitted: (_) => _submit(controller),
+                    ),
+                    const SizedBox(height: 16),
+                    if (controller.isLoading)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          minHeight: 6,
+                          color: colorScheme.primary,
+                          backgroundColor:
+                              colorScheme.primary.withOpacity(0.2),
+                        ),
+                      ),
+                    if (controller.error != null) ...[
+                      const SizedBox(height: 12),
+                      _ErrorBanner(message: controller.error!),
+                    ],
+                    if (ticket != null) ...[
+                      const SizedBox(height: 8),
+                      _TicketDetailsCard(
+                        ticket: ticket,
+                        amountLabel: controller.formatCurrency(
+                          ticket.amount,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: controller.isSubmitting ||
+                                  ticket.status !=
+                                      ParkingTicketStatus.pending
+                              ? null
+                              : () async {
+                                  final order =
+                                      await controller.createPaymentOrder();
+                                  if (!mounted || order == null) return;
+                                  final url = order.urlPayment.trim();
+                                  if (url.isNotEmpty &&
+                                      widget.onOpenPaymentUrl != null) {
+                                    widget.onOpenPaymentUrl!(url);
+                                    return;
+                                  }
+                                  final message = order.orderId.isNotEmpty
+                                      ? 'Orden creada: ${order.orderId}'
+                                      : 'Orden creada.';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(message)),
+                                  );
+                                },
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: controller.isSubmitting
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const Text('Pagar'),
+                        ),
+                      ),
+                      
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (widget.embedInLayout) {
+      return content;
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Consumer<ParkingPaymentController>(
-            builder: (context, controller, _) {
-              final ticket = controller.ticket;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pago de estacionamiento',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Ingresa el codigo del ticket para consultar el monto.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurface.withOpacity(0.7),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: [
-                        _TicketCodeInput(
-                          controller: _codeController,
-                          isLoading: controller.isLoading,
-                          onSearch: () => _submit(controller),
-                          onSubmitted: (_) => _submit(controller),
-                        ),
-                        const SizedBox(height: 16),
-                        if (controller.isLoading)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: LinearProgressIndicator(
-                              minHeight: 6,
-                              color: colorScheme.primary,
-                              backgroundColor:
-                                  colorScheme.primary.withOpacity(0.2),
-                            ),
-                          ),
-                        if (controller.error != null) ...[
-                          const SizedBox(height: 12),
-                          _ErrorBanner(message: controller.error!),
-                        ],
-                        if (ticket != null) ...[
-                          const SizedBox(height: 8),
-                          _TicketDetailsCard(
-                            ticket: ticket,
-                            amountLabel: controller.formatCurrency(
-                              ticket.amount,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton(
-                              onPressed: controller.isSubmitting ||
-                                      ticket.status !=
-                                          ParkingTicketStatus.pending
-                                  ? null
-                                  : () async {
-                                      final order =
-                                          await controller.createPaymentOrder();
-                                      if (!mounted || order == null) return;
-                                      final message = order.orderId.isNotEmpty
-                                          ? 'Orden creada: ${order.orderId}'
-                                          : 'Orden creada.';
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(content: Text(message)),
-                                      );
-                                    },
-                              style: FilledButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              child: controller.isSubmitting
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                      ),
-                                    )
-                                  : const Text('Pagar'),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            ticket.status == ParkingTicketStatus.pending
-                                ? 'Al tocar Pagar se crea la orden en Supabase.'
-                                : 'Este ticket no esta pendiente de pago.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurface.withOpacity(0.6),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
+      body: SafeArea(child: content),
     );
   }
 }

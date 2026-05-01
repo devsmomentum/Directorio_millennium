@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../services/analytics_service.dart'; // 🚀 Importamos el rastreador
 import '../services/currency_service.dart';
 import '../widgets/screen_ad_banners.dart';
@@ -51,6 +52,8 @@ class _ServicesScreenState extends State<ServicesScreen> {
   bool _isLoading = true;
   RealtimeChannel? _subscription;
   double _bcvRate = 36.25; // 🚀 Tasa por defecto
+  bool _showParkingPayment = false;
+  String? _paymentUrl;
 
   @override
   void initState() {
@@ -542,13 +545,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
 
   Widget _buildEstacionamientoCard(ServiceModel srv) {
     return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const ParkingPaymentScreen(),
-          ),
-        );
-      },
+      onTap: () => setState(() => _showParkingPayment = true),
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
@@ -870,23 +867,102 @@ class _ServicesScreenState extends State<ServicesScreen> {
                 ),
                 const SizedBox(height: 15),
                 Expanded(
-                  child: ListView(
-                    physics: const BouncingScrollPhysics(),
+                  child: Stack(
                     children: [
-                      _buildCinesCard(cinesService),
-                      const SizedBox(height: 10),
-                      _buildEstacionamientoCard(estService),
-                      const SizedBox(height: 10),
-                      _buildRecargasCard(recargasService),
-                      const SizedBox(height: 15),
-                      // _buildBottomPaymentSection(),
-                      // const SizedBox(height: 15),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: _showParkingPayment
+                            ? ParkingPaymentScreen(
+                                embedInLayout: true,
+                                onBack: () => setState(() {
+                                  _showParkingPayment = false;
+                                  _paymentUrl = null;
+                                }),
+                                onOpenPaymentUrl: (url) => setState(() {
+                                  _paymentUrl = url;
+                                }),
+                              )
+                            : ListView(
+                                key: const ValueKey('services-list'),
+                                physics: const BouncingScrollPhysics(),
+                                children: [
+                                  _buildCinesCard(cinesService),
+                                  const SizedBox(height: 10),
+                                  _buildEstacionamientoCard(estService),
+                                  const SizedBox(height: 10),
+                                  _buildRecargasCard(recargasService),
+                                  const SizedBox(height: 15),
+                                  // _buildBottomPaymentSection(),
+                                  // const SizedBox(height: 15),
+                                ],
+                              ),
+                      ),
+                      if (_paymentUrl != null)
+                        _PaymentWebViewOverlay(
+                          url: _paymentUrl!,
+                          onClose: () => setState(() => _paymentUrl = null),
+                        ),
                     ],
                   ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentWebViewOverlay extends StatelessWidget {
+  const _PaymentWebViewOverlay({
+    required this.url,
+    required this.onClose,
+  });
+
+  final String url;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Positioned.fill(
+      child: Container(
+        color: theme.scaffoldBackgroundColor,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Pago en linea',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(url)),
+                  initialSettings: InAppWebViewSettings(
+                    javaScriptEnabled: true,
+                    cacheEnabled: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
