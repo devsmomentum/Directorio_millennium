@@ -10,11 +10,15 @@ class ParkingPaymentScreen extends StatelessWidget {
     super.key,
     this.onBack,
     this.onOpenPaymentUrl,
+    this.onPaymentConfirmed,
     this.embedInLayout = false,
   });
 
   final VoidCallback? onBack;
   final ValueChanged<String>? onOpenPaymentUrl;
+  /// Se llama cuando el pago es confirmado (via Realtime/webhook),
+  /// para que el padre cierre la WebView y muestre la confirmación.
+  final VoidCallback? onPaymentConfirmed;
   final bool embedInLayout;
 
   @override
@@ -24,6 +28,7 @@ class ParkingPaymentScreen extends StatelessWidget {
       child: ParkingPaymentView(
         onBack: onBack,
         onOpenPaymentUrl: onOpenPaymentUrl,
+        onPaymentConfirmed: onPaymentConfirmed,
         embedInLayout: embedInLayout,
       ),
     );
@@ -35,11 +40,13 @@ class ParkingPaymentView extends StatefulWidget {
     super.key,
     this.onBack,
     this.onOpenPaymentUrl,
+    this.onPaymentConfirmed,
     this.embedInLayout = false,
   });
 
   final VoidCallback? onBack;
   final ValueChanged<String>? onOpenPaymentUrl;
+  final VoidCallback? onPaymentConfirmed;
   final bool embedInLayout;
 
   @override
@@ -48,9 +55,34 @@ class ParkingPaymentView extends StatefulWidget {
 
 class _ParkingPaymentViewState extends State<ParkingPaymentView> {
   final TextEditingController _codeController = TextEditingController();
+  ParkingPaymentController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = context.read<ParkingPaymentController>();
+    if (_controller != controller) {
+      _controller?.removeListener(_onControllerChanged);
+      _controller = controller;
+      _controller!.addListener(_onControllerChanged);
+    }
+  }
+
+  /// Detecta cuando el Realtime confirma el pago y notifica al padre
+  void _onControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+
+    final ticket = controller.ticket;
+    if (ticket != null && ticket.status == ParkingTicketStatus.paid) {
+      // Pago confirmado — notificar al padre para cerrar WebView
+      widget.onPaymentConfirmed?.call();
+    }
+  }
 
   @override
   void dispose() {
+    _controller?.removeListener(_onControllerChanged);
     _codeController.dispose();
     super.dispose();
   }
@@ -131,86 +163,95 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: controller.isSubmitting ||
-                                  ticket.status !=
-                                      ParkingTicketStatus.pending
-                              ? null
-                              : () async {
-                                  if (ticket.existingPaymentUrl != null &&
-                                      widget.onOpenPaymentUrl != null) {
-                                    widget.onOpenPaymentUrl!(ticket.existingPaymentUrl!);
-                                    return;
-                                  }
-                                  
-                                  final order =
-                                      await controller.createPaymentOrder();
-                                  if (!mounted || order == null) return;
-                                  final url = order.urlPayment.trim();
-                                  if (url.isNotEmpty &&
-                                      widget.onOpenPaymentUrl != null) {
-                                    widget.onOpenPaymentUrl!(url);
-                                    return;
-                                  }
-                                  final message = order.orderId.isNotEmpty
-                                      ? 'Orden creada: ${order.orderId}'
-                                      : 'Orden creada.';
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(message)),
-                                  );
-                                },
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: controller.isSubmitting
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : Text(ticket.existingPaymentUrl != null ? 'Continuar pago' : 'Pagar'),
+
+                      // ── Banner de confirmación cuando el pago fue procesado ──
+                      if (ticket.status == ParkingTicketStatus.paid) ...[
+                        _PaymentSuccessBanner(
+                          exitCode: ticket.exitCode,
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: controller.isSubmitting ||
-                                  ticket.status != ParkingTicketStatus.pending
-                              ? null
-                              : () async {
-                                  final success = await controller.simulatePayment();
-                                  if (!mounted) return;
-                                  if (success) {
+                        const SizedBox(height: 16),
+                      ],
+
+                      // ── Botones de pago (solo si está pendiente) ──
+                      if (ticket.status == ParkingTicketStatus.pending) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: controller.isSubmitting
+                                ? null
+                                : () async {
+                                    if (ticket.existingPaymentUrl != null &&
+                                        widget.onOpenPaymentUrl != null) {
+                                      widget.onOpenPaymentUrl!(ticket.existingPaymentUrl!);
+                                      return;
+                                    }
+                                    
+                                    final order =
+                                        await controller.createPaymentOrder();
+                                    if (!mounted || order == null) return;
+                                    final url = order.urlPayment.trim();
+                                    if (url.isNotEmpty &&
+                                        widget.onOpenPaymentUrl != null) {
+                                      widget.onOpenPaymentUrl!(url);
+                                      return;
+                                    }
+                                    final message = order.orderId.isNotEmpty
+                                        ? 'Orden creada: ${order.orderId}'
+                                        : 'Orden creada.';
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Pago simulado con éxito.')),
+                                      SnackBar(content: Text(message)),
                                     );
-                                  }
-                                },
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                                  },
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                             ),
+                            child: controller.isSubmitting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                    ),
+                                  )
+                                : Text(ticket.existingPaymentUrl != null ? 'Continuar pago' : 'Pagar'),
                           ),
-                          child: controller.isSubmitting
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : const Text('Simular pago'),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: controller.isSubmitting
+                                ? null
+                                : () async {
+                                    final success = await controller.simulatePayment();
+                                    if (!mounted) return;
+                                    if (success) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Pago simulado con éxito.')),
+                                      );
+                                    }
+                                  },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: controller.isSubmitting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                    ),
+                                  )
+                                : const Text('Simular pago'),
+                          ),
+                        ),
+                      ],
                       
                     ],
                   ],
@@ -484,5 +525,70 @@ Color _statusColorFor(ParkingTicketStatus status, ColorScheme colorScheme) {
       return colorScheme.tertiary;
     case ParkingTicketStatus.exited:
       return colorScheme.outline;
+  }
+}
+
+class _PaymentSuccessBanner extends StatelessWidget {
+  final String? exitCode;
+
+  const _PaymentSuccessBanner({this.exitCode});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final successColor = colorScheme.tertiary;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: successColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: successColor.withOpacity(0.4)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.check_circle_rounded,
+            color: successColor,
+            size: 48,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '¡Pago confirmado!',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: successColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tu ticket ha sido pagado exitosamente.\nYa puedes dirigirte a la salida del estacionamiento.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurface.withOpacity(0.7),
+            ),
+          ),
+          if (exitCode != null && exitCode!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: successColor.withOpacity(0.3)),
+              ),
+              child: Text(
+                'Código de salida: $exitCode',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }

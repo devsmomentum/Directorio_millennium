@@ -21,12 +21,14 @@ class ParkingTicketDetails {
   final ParkingTicketStatus status;
   final double amount;
   final String? existingPaymentUrl;
+  final String? exitCode;
 
   const ParkingTicketDetails({
     required this.barcode,
     required this.status,
     required this.amount,
     this.existingPaymentUrl,
+    this.exitCode,
   });
 
   String get statusLabel {

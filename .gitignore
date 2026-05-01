@@ -79,3 +79,4 @@ tools/config.js
 
 *.temp
 assets/demo_caminar.glb
+supabase/config.toml

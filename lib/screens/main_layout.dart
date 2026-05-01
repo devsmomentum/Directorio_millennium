@@ -102,6 +102,18 @@ class MainLayoutState extends State<MainLayout> {
       return; // Si el técnico está configurando, no hacemos nada
     }
 
+    // 🛡️ Si hay un pago activo (WebView abierta), no arrancamos el timeout.
+    // Los toques en la WebView no se propagan a Flutter, así que el timer
+    // expiraría aunque el usuario esté interactuando con la pasarela.
+    if (_servicesKey.currentState?.isPaymentActive == true) {
+      _inactivityTimer?.cancel();
+      _warningTimer?.cancel();
+      if (_showWarning && mounted) {
+        setState(() => _showWarning = false);
+      }
+      return;
+    }
+
     // Cancelar timers anteriores
     _inactivityTimer?.cancel();
     _warningTimer?.cancel();
@@ -136,6 +148,14 @@ class MainLayoutState extends State<MainLayout> {
   void _handleInactivity() {
     // 1. Doble check de seguridad sobre el estado del Widget
     if (!mounted || _isConfiguring) return;
+
+    // 🛡️ Si hay un pago en curso, NO expulsar al usuario.
+    // Reiniciamos el timer para volver a verificar después.
+    if (_servicesKey.currentState?.isPaymentActive == true) {
+      debugPrint('⏳ Timeout suprimido: pago activo en curso');
+      _startInactivityTimer();
+      return;
+    }
 
     // Ocultar el warning
     setState(() => _showWarning = false);

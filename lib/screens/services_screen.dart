@@ -60,6 +60,10 @@ class ServicesScreenState extends State<ServicesScreen> {
   bool _showRecargasPayment = false; 
   String? _paymentUrl;
 
+  /// Indica si hay un pago activo (WebView abierta). Usado por MainLayout
+  /// para evitar que el timeout de inactividad expulse al usuario.
+  bool get isPaymentActive => _paymentUrl != null;
+
   void resetState() {
     if (mounted) {
       setState(() {
@@ -917,6 +921,13 @@ class ServicesScreenState extends State<ServicesScreen> {
                                 onOpenPaymentUrl: (url) => setState(() {
                                   _paymentUrl = url;
                                 }),
+                                onPaymentConfirmed: () {
+                                  // El webhook confirmó el pago via Realtime.
+                                  // Cerramos la WebView automáticamente.
+                                  if (mounted) {
+                                    setState(() => _paymentUrl = null);
+                                  }
+                                },
                               )
                             : ListView(
                                 key: const ValueKey('services-list'),
