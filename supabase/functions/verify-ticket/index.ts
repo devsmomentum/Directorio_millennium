@@ -51,7 +51,15 @@ serve(async (req) => {
       },
     })
 
-    const data = await response.json()
+    const text = await response.text()
+    console.log(`[verify-ticket] Response from esta7 (barcode: ${barcode}): status=${response.status} body=${text}`)
+
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch (_) {
+      data = { raw: text }
+    }
 
     // El sistema retorna status: "valid" o "invalid".
     return new Response(JSON.stringify(data), {

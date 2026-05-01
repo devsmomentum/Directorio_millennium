@@ -29,6 +29,7 @@ class MainLayout extends StatefulWidget {
 class MainLayoutState extends State<MainLayout> {
   int _currentIndex = 1; // Empezamos en Directorio
   final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
+  final GlobalKey<ServicesScreenState> _servicesKey = GlobalKey<ServicesScreenState>();
 
   // --- VARIABLES PARA EL EASTER EGG ---
   int _secretTapCount = 0;
@@ -56,7 +57,7 @@ class MainLayoutState extends State<MainLayout> {
     _screens = [
       const SizedBox(), // Se usa para volver al Home
       MapScreen(key: _mapKey),
-      const ServicesScreen(),
+      ServicesScreen(key: _servicesKey),
       const AssistantScreen(),
       const CouponsScreen(), // 🚀 4. NUEVA PANTALLA DE CUPONES
     ];
@@ -139,6 +140,9 @@ class MainLayoutState extends State<MainLayout> {
     // Ocultar el warning
     setState(() => _showWarning = false);
 
+    // Limpiar estado de servicios (cerrar estacionamiento y links)
+    _servicesKey.currentState?.resetState();
+
     // 🚀 2. Volver al Home sin destruir el layout (mantiene cache de mapas)
     debugPrint("⏳ TIMEOUT ALCANZADO: Volviendo a la publicidad...");
     _exitToHome();
@@ -164,6 +168,11 @@ class MainLayoutState extends State<MainLayout> {
     // Cerrar la barra de búsqueda al cambiar de pestaña
     _mapKey.currentState?.closeSearch();
 
+    // Limpiar estado de servicios al cambiar de pestaña
+    if (_currentIndex == 2 && index != 2) {
+      _servicesKey.currentState?.resetState();
+    }
+
     // Comportamiento normal de la navegación
     if (index == 0) {
       _exitToHome();
@@ -177,6 +186,7 @@ class MainLayoutState extends State<MainLayout> {
 
   void _exitToHome() {
     if (!mounted) return;
+    _servicesKey.currentState?.resetState(); // 🚀 Limpiamos el estado al volver a Home
     if (_currentIndex != 1) {
       setState(() => _currentIndex = 1);
     }

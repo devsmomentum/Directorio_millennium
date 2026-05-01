@@ -46,17 +46,30 @@ class ServicesScreen extends StatefulWidget {
   const ServicesScreen({super.key});
 
   @override
-  State<ServicesScreen> createState() => _ServicesScreenState();
+  State<ServicesScreen> createState() => ServicesScreenState();
 }
 
-class _ServicesScreenState extends State<ServicesScreen> {
+class ServicesScreenState extends State<ServicesScreen> {
   final _client = Supabase.instance.client;
   List<ServiceModel> _services = [];
   bool _isLoading = true;
   RealtimeChannel? _subscription;
   double _bcvRate = 36.25; // 🚀 Tasa por defecto
   bool _showParkingPayment = false;
+  bool _showCinesPayment = false;    
+  bool _showRecargasPayment = false; 
   String? _paymentUrl;
+
+  void resetState() {
+    if (mounted) {
+      setState(() {
+        _showParkingPayment = false;
+        _showCinesPayment = false;
+        _showRecargasPayment = false;
+        _paymentUrl = null;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -842,7 +855,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
     );
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
     final cinesService = _services.firstWhere(
       (s) => s.title.toLowerCase().contains('cine') || s.provider.toLowerCase().contains('cine'),
@@ -869,22 +882,25 @@ class _ServicesScreenState extends State<ServicesScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 15),
-                const Text(
-                  '¿En qué te podemos ayudar?',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
+                // FIX: Added the spread operator `...[` and closed it with `],`
+                if (!_showParkingPayment && !_showCinesPayment && !_showRecargasPayment) ...[
+                  const Text(
+                    '¿En qué te podemos ayudar?',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Selecciona un módulo para comenzar',
-                  style: TextStyle(
-                    color: AppColors.textSecondaryMuted,
-                    fontSize: 14,
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Selecciona un módulo para comenzar',
+                    style: TextStyle(
+                      color: AppColors.textSecondaryMuted,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
+                ], 
                 const SizedBox(height: 15),
                 Expanded(
                   child: Stack(
@@ -933,7 +949,6 @@ class _ServicesScreenState extends State<ServicesScreen> {
     );
   }
 }
-
 class _PaymentWebViewOverlay extends StatelessWidget {
   const _PaymentWebViewOverlay({
     required this.url,

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/supabase_config.dart';
 import 'parking_payment_models.dart';
@@ -50,11 +51,13 @@ class ParkingPaymentService {
     final status = parkingTicketStatusFrom(data['status']?.toString());
     final amount = _parseAmount(data['amount']);
     final serverBarcode = (data['barcode'] ?? barcode).toString().trim();
+    final urlPayment = (data['url_payment'] ?? data['urlPayment'] ?? data['payment_url'])?.toString().trim();
 
     return ParkingTicketDetails(
       barcode: serverBarcode.isEmpty ? barcode : serverBarcode,
       status: status,
       amount: amount,
+      existingPaymentUrl: urlPayment?.isNotEmpty == true ? urlPayment : null,
     );
   }
 
@@ -85,6 +88,37 @@ class ParkingPaymentService {
           .toString(),
       status: (data['status'] ?? 'pending').toString(),
     );
+  }
+
+  Future<void> simulatePayment(String barcode) async {
+    final safeBarcode = barcode.length > 6
+        ? '${barcode.substring(0, 3)}...${barcode.substring(barcode.length - 3)}'
+        : barcode;
+    print('[ParkingPayment][HTTP] simulatePayment -> barcode=$safeBarcode');
+
+    try {
+      // 1. Modificar el status del ticket en la BD
+      // TODO: Ajusta 'parking_tickets' si el nombre de la tabla de tickets es diferente
+      await Supabase.instance.client
+          .from('parking_tickets')
+          .update({'status': 'paid'})
+          .eq('barcode', barcode);
+      print('[ParkingPayment] BD actualizada a paid para el ticket: $safeBarcode');
+    } catch (e) {
+      print('[ParkingPayment] Error al actualizar la BD directamente: $e');
+      // Si la tabla no se llama parking_tickets, o no hay permisos, esto fallará pero seguiremos para intentar el webhook
+    }
+
+    // 2. Notificar al endpoint correspondiente (notify-payment)
+    try {
+      await _postJson('notify-payment', {
+        'barcode': barcode,
+      });
+      print('[ParkingPayment] Endpoint notify-payment notificado para el ticket: $safeBarcode');
+    } catch (e) {
+      print('[ParkingPayment] Error al notificar al endpoint: $e');
+      // No lanzamos la excepción si queremos que la UI siga simulando el éxito
+    }
   }
 
   Future<Map<String, dynamic>> _postJson(

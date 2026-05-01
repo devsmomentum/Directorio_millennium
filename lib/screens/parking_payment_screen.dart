@@ -139,6 +139,12 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
                                       ParkingTicketStatus.pending
                               ? null
                               : () async {
+                                  if (ticket.existingPaymentUrl != null &&
+                                      widget.onOpenPaymentUrl != null) {
+                                    widget.onOpenPaymentUrl!(ticket.existingPaymentUrl!);
+                                    return;
+                                  }
+                                  
                                   final order =
                                       await controller.createPaymentOrder();
                                   if (!mounted || order == null) return;
@@ -169,7 +175,40 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
                                     strokeWidth: 2.5,
                                   ),
                                 )
-                              : const Text('Pagar'),
+                              : Text(ticket.existingPaymentUrl != null ? 'Continuar pago' : 'Pagar'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: controller.isSubmitting ||
+                                  ticket.status != ParkingTicketStatus.pending
+                              ? null
+                              : () async {
+                                  final success = await controller.simulatePayment();
+                                  if (!mounted) return;
+                                  if (success) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Pago simulado con éxito.')),
+                                    );
+                                  }
+                                },
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: controller.isSubmitting
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const Text('Simular pago'),
                         ),
                       ),
                       

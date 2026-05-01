@@ -92,6 +92,37 @@ class ParkingPaymentController extends ChangeNotifier {
     }
   }
 
+  Future<bool> simulatePayment() async {
+    final ticket = _ticket;
+    if (ticket == null) {
+      _setError('No hay ticket para procesar.');
+      return false;
+    }
+
+    _isSubmitting = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _service.simulatePayment(ticket.barcode);
+      
+      // Actualizamos el ticket localmente para reflejar el cambio en la UI
+      _ticket = ParkingTicketDetails(
+        barcode: ticket.barcode,
+        status: ParkingTicketStatus.paid,
+        amount: ticket.amount,
+      );
+      
+      _isSubmitting = false;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      debugPrint('[ParkingPayment] simulatePayment error: $error');
+      _setError(_messageFromException(error), clearTicket: false);
+      return false;
+    }
+  }
+
   String formatCurrency(num value, {String symbol = '\$'}) {
     final fixed = value.toStringAsFixed(2);
     final parts = fixed.split('.');

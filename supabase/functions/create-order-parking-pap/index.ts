@@ -101,10 +101,7 @@ serve(async (req) => {
     }
 
     console.log(
-      "[create-order-parking-pap] gateway status=",
-      apiResponse.status,
-      "payload=",
-      data,
+      `[create-order-parking-pap] gateway response status=${apiResponse.status} body=${apiText}`
     );
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
