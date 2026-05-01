@@ -48,6 +48,14 @@ class ParkingPaymentService {
     });
 
     final data = _unwrapData(response);
+
+    if (data['status']?.toString().toLowerCase() == 'invalid') {
+      throw ParkingPaymentException(
+        status: 400,
+        message: data['error']?.toString() ?? 'Ticket inválido',
+      );
+    }
+
     final status = parkingTicketStatusFrom(data['status']?.toString());
     final amount = _parseAmount(data['amount']);
     final serverBarcode = (data['barcode'] ?? barcode).toString().trim();
@@ -121,6 +129,24 @@ class ParkingPaymentService {
     }
   }
 
+  Future<String?> generateTestCode() async {
+    print('[ParkingPayment][HTTP] test-parking-flow');
+    final response = await _client.post(
+      SupabaseConfig.functionUri('test-parking-flow'),
+      headers: _headers(),
+      body: jsonEncode({}),
+    );
+
+    final decoded = _decodeResponse(response.body);
+    if (response.statusCode >= 400) {
+      throw ParkingPaymentException.fromResponse(
+        response.statusCode,
+        decoded,
+      );
+    }
+    return decoded['code']?.toString();
+  }
+
   Future<Map<String, dynamic>> _postJson(
     String functionName,
     Map<String, dynamic> body,
@@ -176,8 +202,20 @@ class ParkingPaymentService {
   }
 
   double _parseAmount(dynamic raw) {
+    if (raw == null) return 0.0;
     if (raw is num) return raw.toDouble();
-    final parsed = double.tryParse(raw?.toString() ?? '');
+    
+    String s = raw.toString().trim();
+    
+    // Si contiene coma, podría ser formato europeo "123.456,78"
+    if (s.contains(',')) {
+      // Remover los puntos de los miles
+      s = s.replaceAll('.', '');
+      // Cambiar la coma decimal por punto para el parseo de Dart
+      s = s.replaceAll(',', '.');
+    }
+
+    final parsed = double.tryParse(s);
     return parsed ?? 0.0;
   }
 }

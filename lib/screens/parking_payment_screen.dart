@@ -97,7 +97,7 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       child: Consumer<ParkingPaymentController>(
         builder: (context, controller, _) {
           final ticket = controller.ticket;
@@ -140,6 +140,50 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
                       onSubmitted: (_) => _submit(controller),
                     ),
                     const SizedBox(height: 16),
+                    if (controller.generatedCode != null)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Código de prueba: ${controller.generatedCode}',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.onSecondaryContainer,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.copy),
+                              color: colorScheme.onSecondaryContainer,
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: controller.generatedCode!));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Código copiado al portapapeles')),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (controller.generatedCode == null && !controller.isLoading && ticket == null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () => controller.generateTestCode(),
+                            icon: const Icon(Icons.generating_tokens),
+                            label: const Text('Generar código de prueba'),
+                          ),
+                        ),
+                      ),
                     if (controller.isLoading)
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
@@ -162,94 +206,90 @@ class _ParkingPaymentViewState extends State<ParkingPaymentView> {
                           ticket.amount,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
                       // ── Banner de confirmación cuando el pago fue procesado ──
                       if (ticket.status == ParkingTicketStatus.paid) ...[
                         _PaymentSuccessBanner(
                           exitCode: ticket.exitCode,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                       ],
 
                       // ── Botones de pago (solo si está pendiente) ──
                       if (ticket.status == ParkingTicketStatus.pending) ...[
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: controller.isSubmitting
-                                ? null
-                                : () async {
-                                    if (ticket.existingPaymentUrl != null &&
-                                        widget.onOpenPaymentUrl != null) {
-                                      widget.onOpenPaymentUrl!(ticket.existingPaymentUrl!);
-                                      return;
-                                    }
-                                    
-                                    final order =
-                                        await controller.createPaymentOrder();
-                                    if (!mounted || order == null) return;
-                                    final url = order.urlPayment.trim();
-                                    if (url.isNotEmpty &&
-                                        widget.onOpenPaymentUrl != null) {
-                                      widget.onOpenPaymentUrl!(url);
-                                      return;
-                                    }
-                                    final message = order.orderId.isNotEmpty
-                                        ? 'Orden creada: ${order.orderId}'
-                                        : 'Orden creada.';
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(message)),
-                                    );
-                                  },
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: FilledButton(
+                                onPressed: controller.isSubmitting
+                                    ? null
+                                    : () async {
+                                        if (ticket.existingPaymentUrl != null &&
+                                            widget.onOpenPaymentUrl != null) {
+                                          widget.onOpenPaymentUrl!(ticket.existingPaymentUrl!);
+                                          return;
+                                        }
+                                        
+                                        final order =
+                                            await controller.createPaymentOrder();
+                                        if (!mounted || order == null) return;
+                                        final url = order.urlPayment.trim();
+                                        if (url.isNotEmpty &&
+                                            widget.onOpenPaymentUrl != null) {
+                                          widget.onOpenPaymentUrl!(url);
+                                          return;
+                                        }
+                                        final message = order.orderId.isNotEmpty
+                                            ? 'Orden creada: ${order.orderId}'
+                                            : 'Orden creada.';
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(message)),
+                                        );
+                                      },
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: controller.isSubmitting
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                        ),
+                                      )
+                                    : Text(ticket.existingPaymentUrl != null ? 'Continuar pago' : 'Pagar'),
                               ),
                             ),
-                            child: controller.isSubmitting
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : Text(ticket.existingPaymentUrl != null ? 'Continuar pago' : 'Pagar'),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            onPressed: controller.isSubmitting
-                                ? null
-                                : () async {
-                                    final success = await controller.simulatePayment();
-                                    if (!mounted) return;
-                                    if (success) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Pago simulado con éxito.')),
-                                      );
-                                    }
-                                  },
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: OutlinedButton(
+                                onPressed: controller.isSubmitting
+                                    ? null
+                                    : () async {
+                                        final success = await controller.simulatePayment();
+                                        if (!mounted) return;
+                                        if (success) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Pago simulado con éxito.')),
+                                          );
+                                        }
+                                      },
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: const Text('Simular', maxLines: 1, overflow: TextOverflow.ellipsis),
                               ),
                             ),
-                            child: controller.isSubmitting
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : const Text('Simular pago'),
-                          ),
+                          ],
                         ),
                       ],
                       
@@ -292,46 +332,55 @@ class _TicketCodeInput extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: controller,
-          textInputAction: TextInputAction.search,
-          textCapitalization: TextCapitalization.characters,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9-]')),
-          ],
-          onSubmitted: onSubmitted,
-          decoration: InputDecoration(
-            labelText: 'Codigo del ticket',
-            hintText: 'Ej: A1B2C3',
-            prefixIcon: const Icon(Icons.confirmation_number_outlined),
-            filled: true,
-            fillColor: colorScheme.surface,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.4)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            enabled: !isLoading,
+            textInputAction: TextInputAction.search,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9-]')),
+            ],
+            onSubmitted: onSubmitted,
+            decoration: InputDecoration(
+              hintText: 'Ej: A1B2C3',
+              floatingLabelBehavior: FloatingLabelBehavior.never,
+              prefixIcon: const Icon(Icons.confirmation_number_outlined),
+              filled: true,
+              fillColor: colorScheme.surface,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.4)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(width: 8),
         SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
+          height: 52, // Roughly matches the TextField height
+          child: FilledButton(
             onPressed: isLoading ? null : onSearch,
-            icon: const Icon(Icons.search),
-            label: const Text('Buscar'),
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
+            child: isLoading 
+                ? const SizedBox(
+                    width: 20, 
+                    height: 20, 
+                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white)
+                  )
+                : const Icon(Icons.search),
           ),
         ),
       ],
@@ -355,16 +404,16 @@ class _TicketDetailsCard extends StatelessWidget {
     final statusColor = _statusColorFor(ticket.status, colorScheme);
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colorScheme.outline.withOpacity(0.25)),
         boxShadow: [
           BoxShadow(
             color: theme.shadowColor.withOpacity(0.12),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -373,11 +422,11 @@ class _TicketDetailsCard extends StatelessWidget {
         children: [
           Text(
             'Detalle del ticket',
-            style: theme.textTheme.titleMedium?.copyWith(
+            style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           _DetailRow(
             label: 'Codigo',
             value: Text(
@@ -540,10 +589,10 @@ class _PaymentSuccessBanner extends StatelessWidget {
     final successColor = colorScheme.tertiary;
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: successColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: successColor.withOpacity(0.4)),
       ),
       child: Column(
@@ -551,9 +600,9 @@ class _PaymentSuccessBanner extends StatelessWidget {
           Icon(
             Icons.check_circle_rounded,
             color: successColor,
-            size: 48,
+            size: 36,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             '¡Pago confirmado!',
             style: theme.textTheme.titleMedium?.copyWith(

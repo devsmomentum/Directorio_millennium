@@ -53,7 +53,7 @@ serve(async (req) => {
         },
       );
     }
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     if (!barcode) {
       console.log("[create-order-parking-pap] missing barcode", { barcode });

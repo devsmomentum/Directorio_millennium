@@ -17,6 +17,7 @@ class ParkingPaymentController extends ChangeNotifier {
   ParkingTicketDetails? _ticket;
   ParkingPaymentOrder? _lastOrder;
   String? _error;
+  String? _generatedCode;
 
   /// Indica si hay un pago en curso (WebView abierta o esperando confirmación)
   bool _isPaymentInProgress = false;
@@ -29,6 +30,7 @@ class ParkingPaymentController extends ChangeNotifier {
   ParkingTicketDetails? get ticket => _ticket;
   ParkingPaymentOrder? get lastOrder => _lastOrder;
   String? get error => _error;
+  String? get generatedCode => _generatedCode;
   bool get isPaymentInProgress => _isPaymentInProgress;
 
   @override
@@ -162,6 +164,23 @@ class ParkingPaymentController extends ChangeNotifier {
     }
   }
 
+  Future<void> generateTestCode() async {
+    _isLoading = true;
+    _error = null;
+    _generatedCode = null;
+    notifyListeners();
+
+    try {
+      _generatedCode = await _service.generateTestCode();
+    } catch (error) {
+      debugPrint('[ParkingPayment] generateTestCode error: $error');
+      _setError(_messageFromException(error), clearTicket: false);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────
   // Realtime: escuchar cambios en parking_tickets para este barcode
   // ──────────────────────────────────────────────────────────────────
@@ -226,7 +245,7 @@ class ParkingPaymentController extends ChangeNotifier {
 
   // ──────────────────────────────────────────────────────────────────
 
-  String formatCurrency(num value, {String symbol = '\$'}) {
+  String formatCurrency(num value, {String symbol = 'Bs. '}) {
     final fixed = value.toStringAsFixed(2);
     final parts = fixed.split('.');
     final intPart = parts[0];
