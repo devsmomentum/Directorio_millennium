@@ -200,82 +200,80 @@ class _CouponsScreenState extends State<CouponsScreen> {
                     ),
                   ),
                   const SizedBox(height: 30),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00E5FF),
-                            padding: const EdgeInsets.symmetric(vertical: 20),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final submitButton = ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF),
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
                           ),
-                          onPressed: isProcessing
-                              ? null
-                              : () async {
-                                  final email = emailController.text.trim();
-                                  if (email.isEmpty) return;
-                                  setModalState(() => isProcessing = true);
-
-                                  try {
-                                    await CouponService.instance
-                                        .claimCatalogCoupon(
-                                      couponId: coupon.id,
-                                      email: email,
-                                    );
-
-                                    if (!mounted) return;
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          '✅ ¡Cupón enviado a $email! Revisa tu bandeja.',
-                                        ),
-                                        backgroundColor: Colors.green,
-                                      ),
-                                    );
-                                  } on ClaimCouponException catch (e) {
-                                    if (!mounted) return;
-                                    setModalState(() => isProcessing = false);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(e.message),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    setModalState(() => isProcessing = false);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Error reclamando: $e'),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                },
-                          child: isProcessing
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.black,
-                                    strokeWidth: 3,
-                                  ),
-                                )
-                              : const Text(
-                                  'RECLAMAR CUPÓN',
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
                         ),
-                      ),
-                      const SizedBox(width: 15),
-                      TextButton(
+                        onPressed: isProcessing
+                            ? null
+                            : () async {
+                                final email = emailController.text.trim();
+                                if (email.isEmpty) return;
+                                setModalState(() => isProcessing = true);
+
+                                try {
+                                  await CouponService.instance
+                                      .claimCatalogCoupon(
+                                    couponId: coupon.id,
+                                    email: email,
+                                  );
+
+                                  if (!mounted) return;
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '✅ ¡Cupón enviado a $email! Revisa tu bandeja.',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                } on ClaimCouponException catch (e) {
+                                  if (!mounted) return;
+                                  setModalState(() => isProcessing = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(e.message),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  setModalState(() => isProcessing = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error reclamando: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              },
+                        child: isProcessing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.black,
+                                  strokeWidth: 3,
+                                ),
+                              )
+                            : const Text(
+                                'RECLAMAR CUPÓN',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                      );
+
+                      final cancelButton = TextButton(
                         onPressed: isProcessing
                             ? null
                             : () => Navigator.pop(context),
@@ -283,8 +281,27 @@ class _CouponsScreenState extends State<CouponsScreen> {
                           'Cancelar',
                           style: TextStyle(color: Colors.white54),
                         ),
-                      ),
-                    ],
+                      );
+
+                      if (constraints.maxWidth < 360) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            submitButton,
+                            const SizedBox(height: 12),
+                            cancelButton,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: submitButton),
+                          const SizedBox(width: 15),
+                          cancelButton,
+                        ],
+                      );
+                    },
                   ),
                     ],
                   ),
@@ -320,19 +337,35 @@ class _CouponsScreenState extends State<CouponsScreen> {
                         style: TextStyle(color: Colors.white54),
                       ),
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(20),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        int crossAxisCount = 3;
+                        double childAspectRatio = 0.72;
+
+                        if (width < 900) {
+                          crossAxisCount = 2;
+                        }
+                        if (width < 520) {
+                          crossAxisCount = 1;
+                          childAspectRatio = 0.85;
+                        }
+
+                        return GridView.builder(
+                          padding: EdgeInsets.all(width < 520 ? 16 : 20),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
                             crossAxisSpacing: 20,
                             mainAxisSpacing: 20,
-                            childAspectRatio: 0.72,
+                            childAspectRatio: childAspectRatio,
                           ),
-                      itemCount: _allCoupons.length,
-                      itemBuilder: (context, index) {
-                        final coupon = _allCoupons[index];
-                        return _buildCouponCard(coupon);
+                          itemCount: _allCoupons.length,
+                          itemBuilder: (context, index) {
+                            final coupon = _allCoupons[index];
+                            return _buildCouponCard(coupon);
+                          },
+                        );
                       },
                     ),
             ),

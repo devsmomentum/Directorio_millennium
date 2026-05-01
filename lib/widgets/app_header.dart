@@ -118,101 +118,118 @@ class _AppHeaderState extends State<AppHeader> {
             // ── CONTENIDO PRINCIPAL DEL HEADER ──
             SizedBox(
               height: AppHeader._headerHeight - 4.0, // Descontamos los 4px de ambas líneas
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  children: [
-                    // ── CENTRO: Logo + Título + Reloj ──
-                    Expanded(
-                      child: Row(
-                        children: [
-                          // Logo desde Supabase Storage.
-                          // Zona oculta de long-press: 3 segundos sobre el
-                          // logo abren el selector de kiosco (útil para
-                          // depurar en una laptop como si fuera un kiosco).
-                          KioskLongPressZone(
-                            child: Container(
-                              // Área ampliada para capturar el long-press sin
-                              // alterar el layout visible del logo.
-                              width: 56,
-                              height: 56,
-                              alignment: Alignment.center,
-                              color: AppColors.transparent,
-                              child: Image.network(
-                                'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
-                                height: 40,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const Icon(
-                                  Icons.apartment_rounded,
-                                  color: AppColors.textPrimary,
-                                  size: 32,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          // Nombre del mall + subtítulo
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'MILLENNIUM MALL',
-                                  style: AppTextStyles.buttonText.copyWith(
-                                    fontSize: 16,
-                                    letterSpacing: 1.5,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                ShaderMask(
-                                  shaderCallback: (bounds) =>
-                                      AppColors.primaryGradient
-                                          .createShader(bounds),
-                                  child: Text(
-                                    widget.subtitle,
-                                    style: AppTextStyles.caption.copyWith(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isCompact = constraints.maxWidth < 420;
+                  final emergencySize = isCompact ? 38.0 : 44.0;
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Row(
+                      children: [
+                        // ── CENTRO: Logo + Título + Reloj ──
+                        Expanded(
+                          child: Row(
+                            children: [
+                              // Logo desde Supabase Storage.
+                              // Zona oculta de long-press: 3 segundos sobre el
+                              // logo abren el selector de kiosco (útil para
+                              // depurar en una laptop como si fuera un kiosco).
+                              KioskLongPressZone(
+                                child: Container(
+                                  // Área ampliada para capturar el long-press sin
+                                  // alterar el layout visible del logo.
+                                  width: 56,
+                                  height: 56,
+                                  alignment: Alignment.center,
+                                  color: AppColors.transparent,
+                                  child: Image.network(
+                                    'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/logo.png',
+                                    height: 40,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.apartment_rounded,
                                       color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 10,
-                                      letterSpacing: 1.2,
+                                      size: 32,
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                          // Reloj y fecha (alineados a la derecha del centro)
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                _timeString,
-                                style: AppTextStyles.body.copyWith(
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
+                              ),
+                              const SizedBox(width: 12),
+                              // Nombre del mall + subtítulo
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'MILLENNIUM MALL',
+                                      style: AppTextStyles.buttonText.copyWith(
+                                        fontSize: 16,
+                                        letterSpacing: 1.5,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    ShaderMask(
+                                      shaderCallback: (bounds) =>
+                                          AppColors.primaryGradient
+                                              .createShader(bounds),
+                                      child: Text(
+                                        widget.subtitle,
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: AppColors.textPrimary,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 10,
+                                          letterSpacing: 1.2,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              Text(
-                                _dateString,
-                                style: AppTextStyles.caption.copyWith(
-                                  color: AppColors.textSecondaryMuted,
-                                  fontSize: 10,
+                              const SizedBox(width: 8),
+                              // Reloj y fecha (alineados a la derecha del centro)
+                              Flexible(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      _timeString,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppTextStyles.body.copyWith(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: isCompact ? 12 : 14,
+                                      ),
+                                    ),
+                                    if (!isCompact)
+                                      Text(
+                                        _dateString,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: AppColors.textSecondaryMuted,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
+                              const SizedBox(width: 12),
+                              // Botón de emergencia
+                              EmergencyButton(size: emergencySize),
                             ],
                           ),
-                          const SizedBox(width: 16),
-                          // Botón de emergencia
-                          const EmergencyButton(size: 44),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
 

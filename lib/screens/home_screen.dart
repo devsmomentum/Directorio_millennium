@@ -270,44 +270,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSmallWifiInfo() {
     const double targetHeight = 50.0; // Altura objetivo para ambos widgets
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // 1. Texto de WiFi Gratis (Ocupando todo el espacio disponible)
-        Expanded(
-          child: Container(
-            height: targetHeight,
-            padding: const EdgeInsets.symmetric(horizontal: 15),
-            decoration: BoxDecoration(
-              color: AppColors.chipBackground,
-              borderRadius: BorderRadius.circular(targetHeight / 2),
-              border: Border.all(color: AppColors.subtleBorder),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment
-                  .center, // Centramos el contenido internamente
-              children: [
-                Icon(Icons.wifi, color: AppColors.primary, size: 18),
-                SizedBox(width: 10),
-                // Expanded interno opcional por si la pantalla es muy pequeña y el texto choca
-                Flexible(
-                  child: Text(
-                    'WiFi Gratis: Millennium_Mall',
-                    style: AppTextStyles.caption,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wifiChip = Container(
+          height: targetHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 15),
+          decoration: BoxDecoration(
+            color: AppColors.chipBackground,
+            borderRadius: BorderRadius.circular(targetHeight / 2),
+            border: Border.all(color: AppColors.subtleBorder),
           ),
-        ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment
+                .center, // Centramos el contenido internamente
+            children: [
+              Icon(Icons.wifi, color: AppColors.primary, size: 18),
+              SizedBox(width: 10),
+              // Expanded interno opcional por si la pantalla es muy pequeña y el texto choca
+              Flexible(
+                child: Text(
+                  'WiFi Gratis: Millennium_Mall',
+                  style: AppTextStyles.caption,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
 
-        // 2. Espacio fijo entre el contenedor de WiFi y el QR
-        const SizedBox(width: 15),
-
-        // 3. Código QR (Tamaño fijo a la derecha)
-        Container(
+        final qrWidget = Container(
           height: targetHeight,
           width: targetHeight,
           decoration: BoxDecoration(
@@ -324,11 +315,40 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: AppColors.qrBackground,
             ),
           ),
-        ),
-        // Botón de emergencia
-        const SizedBox(width: 15),
-        EmergencyButton(size: targetHeight),
-      ],
+        );
+
+        final emergencyButton = EmergencyButton(size: targetHeight);
+        final isCompact = constraints.maxWidth < 420;
+
+        if (isCompact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              wifiChip,
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  qrWidget,
+                  const SizedBox(width: 12),
+                  emergencyButton,
+                ],
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: wifiChip),
+            const SizedBox(width: 15),
+            qrWidget,
+            const SizedBox(width: 15),
+            emergencyButton,
+          ],
+        );
+      },
     );
   }
 Widget _buildSmallStartButton(BuildContext context) {
@@ -356,31 +376,29 @@ Widget _buildSmallStartButton(BuildContext context) {
     );
   }
   Widget _buildCollaborativeFooter() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('Desarrollado por ', style: AppTextStyles.footer),
-            const SizedBox(width: 4),
-            Image.network(
-              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png',
-              height: 16,
-            ),
-            const SizedBox(width: 4),
-            const Text(' en colaboración con ', style: AppTextStyles.footer),
-            Image.network(
-              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/ANAVI.png',
-              height: 25,
-            ),
-            const SizedBox(width: 6),
-            Image.network(
-              'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_sunmi.png',
-              height: 35,
-            ),
-          ],
-        ),
-      ],
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          const Text('Desarrollado por ', style: AppTextStyles.footer),
+          Image.network(
+            'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Recurso%203@2x.png',
+            height: 16,
+          ),
+          const Text(' en colaboración con ', style: AppTextStyles.footer),
+          Image.network(
+            'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/ANAVI.png',
+            height: 25,
+          ),
+          Image.network(
+            'https://lrjgocjubpxruobshtoe.supabase.co/storage/v1/object/public/mapas/Logo_sunmi.png',
+            height: 35,
+          ),
+        ],
+      ),
     );
   }
 

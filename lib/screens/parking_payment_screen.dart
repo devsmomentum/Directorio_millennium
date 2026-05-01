@@ -302,6 +302,8 @@ class _TicketDetailsCard extends StatelessWidget {
             label: 'Codigo',
             value: Text(
               ticket.barcode,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.2,
@@ -359,7 +361,12 @@ class _DetailRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        value,
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: value,
+          ),
+        ),
       ],
     );
   }

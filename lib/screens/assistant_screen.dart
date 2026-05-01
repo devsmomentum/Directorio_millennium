@@ -124,12 +124,16 @@ class AssistantScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 15),
-            const Text(
-              '⚡ SUPERAPI · CONSERJE',
-              style: TextStyle(
-                color: Colors.orangeAccent,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
+            const Expanded(
+              child: Text(
+                '⚡ SUPERAPI · CONSERJE',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.orangeAccent,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
               ),
             ),
           ],

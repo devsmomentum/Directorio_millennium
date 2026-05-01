@@ -142,10 +142,9 @@ class EmergencyButton extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 30),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final cancelButton = TextButton(
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white54,
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
@@ -155,9 +154,9 @@ class EmergencyButton extends StatelessWidget {
                         'CANCELAR',
                         style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
                       ),
-                    ),
-                    const SizedBox(width: 15),
-                    ElevatedButton(
+                    );
+
+                    final confirmButton = ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF8B0000), // Actualizado a rojo oscuro
                         foregroundColor: Colors.white,
@@ -169,15 +168,35 @@ class EmergencyButton extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
                       ),
                       onPressed: () {
-                        Navigator.of(dialogContext).pop(); 
-                        _triggerEmergency(); 
+                        Navigator.of(dialogContext).pop();
+                        _triggerEmergency();
                       },
                       child: const Text(
                         'PROCEDER CON LA ALERTA',
                         style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
                       ),
-                    ),
-                  ],
+                    );
+
+                    if (constraints.maxWidth < 360) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          confirmButton,
+                          const SizedBox(height: 12),
+                          cancelButton,
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        cancelButton,
+                        const SizedBox(width: 15),
+                        confirmButton,
+                      ],
+                    );
+                  },
                 ),
               ],
               ),

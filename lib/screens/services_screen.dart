@@ -1,9 +1,12 @@
 // lib/screens/services_screen.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/analytics_service.dart'; // 🚀 Importamos el rastreador
 import '../services/currency_service.dart';
 import '../widgets/screen_ad_banners.dart';
@@ -231,113 +234,111 @@ class _ServicesScreenState extends State<ServicesScreen> {
 
                   const SizedBox(height: 25),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFF007A),
-                            padding: const EdgeInsets.symmetric(vertical: 20),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final submitButton = ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF007A),
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
                           ),
-                          onPressed: isProcessing
-                              ? null
-                              : () async {
-                                  if (contractController.text.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Ingresa el número de contrato',
-                                        ),
-                                        backgroundColor: Colors.redAccent,
+                        ),
+                        onPressed: isProcessing
+                            ? null
+                            : () async {
+                                if (contractController.text.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Ingresa el número de contrato',
                                       ),
-                                    );
-                                    return;
-                                  }
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                  );
+                                  return;
+                                }
 
-                                  setModalState(() => isProcessing = true);
+                                setModalState(() => isProcessing = true);
 
-                                  try {
-                                    // 1. Simulamos una pequeña espera conectando al "Proveedor"
-                                    await Future.delayed(
-                                      const Duration(seconds: 2),
-                                    );
+                                try {
+                                  // 1. Simulamos una pequeña espera conectando al "Proveedor"
+                                  await Future.delayed(
+                                    const Duration(seconds: 2),
+                                  );
 
-                                    // 2. Simulamos una deuda a pagar fija para el MVP
-                                    final double amountUsd = 15.00;
+                                  // 2. Simulamos una deuda a pagar fija para el MVP
+                                  final double amountUsd = 15.00;
 
-                                    // 3. Buscamos el ID real del Kiosco
-                                    final prefs =
-                                        await SharedPreferences.getInstance();
-                                    final currentKioskId =
-                                        prefs.getString('kiosk_id') ??
-                                        'K2-NO-VINCULADO';
+                                  // 3. Buscamos el ID real del Kiosco
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+                                  final currentKioskId =
+                                      prefs.getString('kiosk_id') ??
+                                      'K2-NO-VINCULADO';
 
-                                    // 🚀 4. REGISTRAMOS LA TRANSACCIÓN FINANCIERA EN SUPABASE
-                                    await _client.from('transactions').insert({
-                                      'transaction_type': 'service',
-                                      'item_id': service.id,
-                                      'item_name': 'Pago: ${service.title}',
-                                      'amount_usd': amountUsd,
-                                      'exchange_rate': _bcvRate,
-                                      'amount_bs': (amountUsd * _bcvRate),
-                                      'payment_method': 'simulated',
-                                      'status': 'completed',
-                                      'user_email':
-                                          'contrato_${contractController.text}@terminal.com',
-                                      'kiosk_id': currentKioskId,
-                                    });
+                                  // 🚀 4. REGISTRAMOS LA TRANSACCIÓN FINANCIERA EN SUPABASE
+                                  await _client.from('transactions').insert({
+                                    'transaction_type': 'service',
+                                    'item_id': service.id,
+                                    'item_name': 'Pago: ${service.title}',
+                                    'amount_usd': amountUsd,
+                                    'exchange_rate': _bcvRate,
+                                    'amount_bs': (amountUsd * _bcvRate),
+                                    'payment_method': 'simulated',
+                                    'status': 'completed',
+                                    'user_email':
+                                        'contrato_${contractController.text}@terminal.com',
+                                    'kiosk_id': currentKioskId,
+                                  });
 
-                                    if (mounted) {
-                                      Navigator.pop(context);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            '✅ Pago de \$${amountUsd.toStringAsFixed(2)} procesado con éxito',
-                                          ),
-                                          backgroundColor: Colors.green,
-                                          duration: const Duration(seconds: 4),
-                                        ),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    setModalState(() => isProcessing = false);
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                  if (mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(
+                                      context,
+                                    ).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                          'Error procesando pago: $e',
+                                          '✅ Pago de \$${amountUsd.toStringAsFixed(2)} procesado con éxito',
                                         ),
-                                        backgroundColor: Colors.red,
+                                        backgroundColor: Colors.green,
+                                        duration: const Duration(seconds: 4),
                                       ),
                                     );
                                   }
-                                },
-                          child: isProcessing
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text(
-                                  'CONSULTAR Y PAGAR',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  setModalState(() => isProcessing = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Error procesando pago: $e',
+                                      ),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              },
+                        child: isProcessing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
                                 ),
-                        ),
-                      ),
-                      const SizedBox(width: 15),
-                      TextButton(
+                              )
+                            : const Text(
+                                'CONSULTAR Y PAGAR',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                      );
+
+                      final cancelButton = TextButton(
                         onPressed: isProcessing
                             ? null
                             : () => Navigator.pop(context),
@@ -345,8 +346,27 @@ class _ServicesScreenState extends State<ServicesScreen> {
                           'Cancelar',
                           style: TextStyle(color: Colors.white54),
                         ),
-                      ),
-                    ],
+                      );
+
+                      if (constraints.maxWidth < 360) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            submitButton,
+                            const SizedBox(height: 12),
+                            cancelButton,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: submitButton),
+                          const SizedBox(width: 15),
+                          cancelButton,
+                        ],
+                      );
+                    },
                   ),
                     ],
                   ),
@@ -923,9 +943,25 @@ class _PaymentWebViewOverlay extends StatelessWidget {
   final String url;
   final VoidCallback onClose;
 
+  bool get _supportsPaymentWebView {
+    if (kIsWeb) return false;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return true;
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+      case TargetPlatform.fuchsia:
+        return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    InAppWebViewController? controller;
+    final uri = Uri.tryParse(url);
     return Positioned.fill(
       child: Container(
         color: theme.scaffoldBackgroundColor,
@@ -952,18 +988,163 @@ class _PaymentWebViewOverlay extends StatelessWidget {
             Expanded(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri(url)),
-                  initialSettings: InAppWebViewSettings(
-                    javaScriptEnabled: true,
-                    cacheEnabled: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                  ),
-                ),
+                  child: _supportsPaymentWebView
+                      ? InAppWebView(
+                          initialUrlRequest: URLRequest(url: WebUri(url)),
+                          initialSettings: InAppWebViewSettings(
+                            javaScriptEnabled: true,
+                            cacheEnabled: true,
+                            mediaPlaybackRequiresUserGesture: false,
+                            domStorageEnabled: true,
+                            supportMultipleWindows: true,
+                            javaScriptCanOpenWindowsAutomatically: true,
+                            useShouldOverrideUrlLoading: true,
+                            thirdPartyCookiesEnabled: true,
+                            sharedCookiesEnabled: true,
+                          ),
+                          onWebViewCreated: (created) => controller = created,
+                          shouldOverrideUrlLoading:
+                              (controller, navigationAction) async {
+                            final uri = navigationAction.request.url;
+                            if (uri == null) {
+                              return NavigationActionPolicy.ALLOW;
+                            }
+                            // Some gateways open a new window/tab; keep navigation in-app.
+                            if (navigationAction.isForMainFrame != true) {
+                              await controller.loadUrl(
+                                urlRequest: URLRequest(url: uri),
+                              );
+                              return NavigationActionPolicy.CANCEL;
+                            }
+                            return NavigationActionPolicy.ALLOW;
+                          },
+                          onCreateWindow:
+                              (controller, createWindowRequest) async {
+                            final uri = createWindowRequest.request.url;
+                            if (uri != null) {
+                              await controller.loadUrl(
+                                urlRequest: URLRequest(url: uri),
+                              );
+                            }
+                            return true;
+                          },
+                          onLoadError: (controller, url, code, message) {
+                            debugPrint(
+                              '[PaymentWebView] load error code=$code message=$message url=$url',
+                            );
+                          },
+                          onLoadHttpError:
+                              (controller, url, statusCode, description) {
+                            debugPrint(
+                              '[PaymentWebView] http error status=$statusCode url=$url desc=$description',
+                            );
+                          },
+                        )
+                      : _PaymentWebViewFallback(
+                          url: url,
+                          uri: uri,
+                        ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PaymentWebViewFallback extends StatelessWidget {
+  const _PaymentWebViewFallback({
+    required this.url,
+    required this.uri,
+  });
+
+  final String url;
+  final Uri? uri;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: theme.colorScheme.surface,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.open_in_browser,
+                    size: 42,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Este dispositivo no soporta WebView para pagos.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Abre el enlace en tu navegador para completar el pago.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: uri == null
+                          ? null
+                          : () async {
+                              final ok = await launchUrl(
+                                uri!,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!ok && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content:
+                                        Text('No se pudo abrir el navegador.'),
+                                  ),
+                                );
+                              }
+                            },
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Abrir en navegador'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: url));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Enlace copiado al portapapeles.'),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copiar enlace'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

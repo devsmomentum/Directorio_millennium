@@ -359,14 +359,39 @@ class MainLayoutState extends State<MainLayout> {
                     border: Border(top: BorderSide(color: AppColors.divider)),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildNavItem(Icons.home_outlined, 'Inicio', 0),
-                      _buildNavItem(Icons.map_outlined, 'Directorio', 1),
+                      Expanded(
+                        child: _buildNavItem(Icons.home_outlined, 'Inicio', 0),
+                      ),
+                      Expanded(
+                        child: _buildNavItem(
+                          Icons.map_outlined,
+                          'Directorio',
+                          1,
+                        ),
+                      ),
                       // 🚀 NUEVO BOTÓN DE CUPONES
-                      _buildNavItem(Icons.local_activity_outlined, 'Cupones', 4),
-                      _buildNavItem(Icons.credit_card_outlined, 'Servicios', 2),
-                      _buildNavItem(Icons.chat_bubble_outline, 'Asistente', 3),
+                      Expanded(
+                        child: _buildNavItem(
+                          Icons.local_activity_outlined,
+                          'Cupones',
+                          4,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildNavItem(
+                          Icons.credit_card_outlined,
+                          'Servicios',
+                          2,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildNavItem(
+                          Icons.chat_bubble_outline,
+                          'Asistente',
+                          3,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -396,7 +421,7 @@ class MainLayoutState extends State<MainLayout> {
       onTap: () => _onItemTapped(index),
       child: Container(
         color: AppColors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -415,6 +440,8 @@ class MainLayoutState extends State<MainLayout> {
                     ? AppColors.primary
                     : AppColors.textSecondaryMuted,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
